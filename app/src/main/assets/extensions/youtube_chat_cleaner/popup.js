@@ -6,7 +6,7 @@ const DEFAULTS = {
   hideName: true,
   compact: true,
   alignRight: false,
-  chatWidthPercent: 100
+  chatWidthPercent: 40
 };
 
 const form = document.querySelector('form');

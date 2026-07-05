@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "YTChatPlayer"
+rootProject.name = "ytflow-android"
 include(":app")

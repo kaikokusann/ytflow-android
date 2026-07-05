@@ -8,7 +8,7 @@
         android:enableOnBackInvokedCallback="false"
         android:hardwareAccelerated="true"
         android:icon="@drawable/ic_launcher"
-        android:label="YT Chat Player"
+        android:label="YTFlow"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
