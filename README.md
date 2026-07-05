@@ -13,7 +13,7 @@ Mozilla の強力なブラウザエンジン「GeckoView」をベースにして
 本プロジェクトは Android Studio を使用してビルドできます。
 
 ```bash
-git clone https://github.com/[YOUR_USERNAME]/ytflow-android.git
+git clone https://github.com/kaikokusann/ytflow-android.git
 cd ytflow-android
 ./gradlew installDebug
 ```
