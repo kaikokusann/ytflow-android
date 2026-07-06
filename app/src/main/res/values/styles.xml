@@ -7,5 +7,8 @@
         <item name="android:navigationBarColor">#0F0F0F</item>
         <item name="android:statusBarColor">#0F0F0F</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowSplashScreenBackground">#0F0F0F</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#0F0F0F</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
     </style>
 </resources>
