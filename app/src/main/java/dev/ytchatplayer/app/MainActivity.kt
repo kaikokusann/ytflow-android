@@ -992,16 +992,17 @@ class MainActivity : Activity() {
         }
 
     private fun loadUrlInto(surface: BrowserSurface, url: String, replaceHistory: Boolean = false) {
+        val targetUrl = withAppFlags(url)
         updateSurfaceUrl(surface, url)
         if (surface == activeSurface) address.setText(url)
         val targetSession = sessionFor(surface)
         if (replaceHistory) {
             val loader = GeckoSession.Loader()
-                .uri(url)
+                .uri(targetUrl)
                 .flags(GeckoSession.LOAD_FLAGS_REPLACE_HISTORY)
             targetSession.load(loader)
         } else {
-            targetSession.loadUri(url)
+            targetSession.loadUri(targetUrl)
         }
     }
  
@@ -1581,7 +1582,14 @@ class MainActivity : Activity() {
     private fun withAppFlags(rawUrl: String): String {
         val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return rawUrl
         if (uri.host?.lowercase() !in YOUTUBE_HOSTS) return rawUrl
-        return uri.buildUpon()
+        val builder = uri.buildUpon().clearQuery()
+        for (key in uri.queryParameterNames) {
+            if (key.startsWith("ytcc_app_")) continue
+            for (value in uri.getQueryParameters(key)) {
+                builder.appendQueryParameter(key, value)
+            }
+        }
+        return builder
             .appendQueryParameter("ytcc_app_ycc", if (youtubeChatCleanerEnabled) "1" else "0")
             .appendQueryParameter("ytcc_app_lcf", if (liveChatFlusherEnabled) "1" else "0")
             .appendQueryParameter("ytcc_app_chat_only", if (chatOnlyModeEnabled) "1" else "0")

@@ -190,3 +190,16 @@
   min-width: 0 !important;
   width: 100vw !important;
 }
+
+:root.ytcc-enabled.ytcc-chat-only #masthead-container,
+:root.ytcc-enabled.ytcc-chat-only ytd-masthead,
+:root.ytcc-enabled.ytcc-chat-only ytd-mini-guide-renderer,
+:root.ytcc-enabled.ytcc-chat-only tp-yt-app-drawer {
+  display: none !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only #yt-lcf-layer,
+:root.ytcc-enabled.ytcc-chat-only #yt-lcf-pp,
+:root.ytcc-enabled.ytcc-chat-only #yt-lcf-panel {
+  display: none !important;
+}

@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "YouTube Mode Router",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "description": "Routes YouTube watch/live pages to desktop host and browsing pages to mobile host.",
   "browser_specific_settings": {
     "gecko": {

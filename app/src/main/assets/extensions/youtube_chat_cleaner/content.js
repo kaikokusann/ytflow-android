@@ -146,8 +146,12 @@ function isLiveVideo() {
   if (player && String(player.className || '').includes('ytp-livebadge-color')) return true;
   if (document.querySelector('.ytp-live-badge-is-livehead')) return true;
   if (document.querySelector('.ytp-time-display.ytp-live')) return true;
+  if (document.querySelector('.ytp-autonav-live-stamp')) return true;
   const video = document.querySelector('video');
-  return Boolean(video && video.duration === Infinity);
+  if (video && video.duration === Infinity) return true;
+  const timeDisplay = document.querySelector('.ytp-time-display')?.textContent || '';
+  if (timeDisplay.includes('ライブ') || /\bLIVE\b/i.test(timeDisplay)) return true;
+  return false;
 }
 
 function normalizeChatWidth(value) {

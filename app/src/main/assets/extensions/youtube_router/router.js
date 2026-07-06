@@ -12,11 +12,11 @@
   const PIP_CLASS = 'ytcc-app-pip';
   const COMPACT_DESKTOP_CLASS = 'ytcc-compact-desktop';
   const CHAT_CSS = `
-    html.${COMPACT_DESKTOP_CLASS}:not(.${PIP_CLASS}):not(.ytcc-app-fullscreen),
-    html.${COMPACT_DESKTOP_CLASS}:not(.${PIP_CLASS}):not(.ytcc-app-fullscreen) body {
+    html.${COMPACT_DESKTOP_CLASS}:not(.${PIP_CLASS}):not(.ytcc-app-fullscreen):not(.ytcc-chat-only),
+    html.${COMPACT_DESKTOP_CLASS}:not(.${PIP_CLASS}):not(.ytcc-app-fullscreen):not(.ytcc-chat-only) body {
       overflow-x: hidden !important;
     }
-    html.${COMPACT_DESKTOP_CLASS}:not(.${PIP_CLASS}):not(.ytcc-app-fullscreen) ytd-app {
+    html.${COMPACT_DESKTOP_CLASS}:not(.${PIP_CLASS}):not(.ytcc-app-fullscreen):not(.ytcc-chat-only) ytd-app {
       min-height: calc(100vh / 0.88) !important;
       transform: scale(0.88) !important;
       transform-origin: 0 0 !important;
