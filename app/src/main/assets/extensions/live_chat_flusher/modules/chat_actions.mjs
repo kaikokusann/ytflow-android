@@ -92,6 +92,7 @@ export class ReplayActionBuffer {
  * @param {string} initialContinuation initial continuation token
  * @param {object} [options]
  * @param {boolean} [options.auth]
+ * @param {number} [options.offset]
  * @returns {AsyncGenerator<LiveChat.ReplayChatItemAction[]>} chat actions generator
  */
 export async function* getReplayChatActionsAsyncIterable(signal, initialContinuation, options = {}) {
@@ -107,7 +108,9 @@ export async function* getReplayChatActionsAsyncIterable(signal, initialContinua
 	let contents = { actions: [] };
 
 	/** @type {SeekInfo | undefined} */
-	let seekInfo;
+	let seekInfo = Number.isFinite(options.offset) && options.offset > 0
+		? { offset: Math.max(0, options.offset | 0) }
+		: undefined;
 	let controller = new AbortController();
 	signal.addEventListener('ytlcf-seek', e => {
 		seekInfo = /** @type {SeekInfo} */ (e.detail);
@@ -126,30 +129,32 @@ export async function* getReplayChatActionsAsyncIterable(signal, initialContinua
 		}
 		contents = await getContentsAsync(url, body, { auth });
 		let sleepMs = 250;
-		if (contents.actions) yield contents.actions;
 		if (seekInfo) {
 			body = getContinuation(contents, true, seekInfo.offset);
 			prevOffset = seekInfo.offset;
 			seekInfo = undefined;
 			controller.abort();
+			prev = body.continuation;
+			controller = new AbortController();
+			continue;
+		}
+		if (contents.actions) yield contents.actions;
+		body = getContinuation(contents, true);
+		if (prev !== initialContinuation) continuations.set(prev, body.continuation);
+		const offset = Number.parseInt(contents.actions?.at(-1)?.replayChatItemAction.videoOffsetTimeMsec || '-1', 10);
+		if (offset >= prevOffset) {
+			const playbackRate = JSON.parse(sessionStorage.getItem('yt-player-playback-rate') || `{"data":"1"}`).data || '1';
+			const offsetDiff = (offset - prevOffset) / Number.parseFloat(playbackRate) - 250 | 0;
+			sleepMs = Math.max(250, offsetDiff);
+			prevOffset = offset;
+			logger.debug(
+				`Fetched ${contents.actions?.length || 'no'} chat actions up to ${formatMilliseconds(offset)}.`,
+				`Next request will be sent ${(sleepMs / 1000).toFixed(3)} sec after.`
+			);
 		} else {
-			body = getContinuation(contents, true);
-			if (prev !== initialContinuation) continuations.set(prev, body.continuation);
-			const offset = Number.parseInt(contents.actions?.at(-1)?.replayChatItemAction.videoOffsetTimeMsec || '-1', 10);
-			if (offset >= prevOffset) {
-				const playbackRate = JSON.parse(sessionStorage.getItem('yt-player-playback-rate') || `{"data":"1"}`).data || '1';
-				const offsetDiff = (offset - prevOffset) / Number.parseFloat(playbackRate) - 250 | 0;
-				sleepMs = Math.max(250, offsetDiff);
-				prevOffset = offset;
-				logger.debug(
-					`Fetched ${contents.actions?.length || 'no'} chat actions up to ${formatMilliseconds(offset)}.`,
-					`Next request will be sent ${(sleepMs / 1000).toFixed(3)} sec after.`
-				);
-			} else {
-				sleepMs = Infinity;
-				continuations.clear();
-				logger.debug(`Fetched ${contents.actions?.length || 'no'} chat actions.`);
-			}
+			sleepMs = Infinity;
+			continuations.clear();
+			logger.debug(`Fetched ${contents.actions?.length || 'no'} chat actions.`);
 		}
 		prev = body.continuation;
 		controller = new AbortController();

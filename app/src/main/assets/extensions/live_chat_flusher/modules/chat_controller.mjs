@@ -18,9 +18,11 @@ export const SimultaneousModeEnum = Object.freeze({
 
 const APP_NORMAL_CHAT_KEY = 'ytlcf-app-normal-chat-enabled';
 const APP_NORMAL_CHAT_FONT_SCALE_KEY = 'ytlcf-app-normal-chat-font-scale';
+const APP_NORMAL_CHAT_SHOW_NAME_KEY = 'ytlcf-app-normal-chat-show-name';
 const APP_NORMAL_CHAT_SHOW_PHOTO_KEY = 'ytlcf-app-normal-chat-show-photo';
 const APP_NORMAL_CHAT_ATTR = 'data-ytlcf-app-normal-chat-enabled';
 const APP_NORMAL_CHAT_FONT_SCALE_ATTR = 'data-ytlcf-app-normal-chat-font-scale';
+const APP_NORMAL_CHAT_SHOW_NAME_ATTR = 'data-ytlcf-app-normal-chat-show-name';
 const APP_NORMAL_CHAT_SHOW_PHOTO_ATTR = 'data-ytlcf-app-normal-chat-show-photo';
 const APP_NORMAL_CHAT_ACTIVE_CLASS = 'ytlcf-app-normal-chat-active';
 const NORMAL_CHAT_PHOTO_PARTS = Object.freeze([
@@ -44,6 +46,7 @@ export class NormalChatView {
 	list;
 	enabled = false;
 	limit = 60;
+	showName = true;
 	showPhoto = true;
 
 	constructor() {
@@ -133,15 +136,19 @@ export class NormalChatView {
 				padding: .05em .35em;
 				vertical-align: .05em;
 			}
-			.name {
-				color: #16802a;
-				font-weight: 750;
-				margin-right: .35em;
-			}
-			.body {
-				color: #111;
-				overflow: visible;
-			}
+				.name {
+					color: #16802a;
+					font-weight: 750;
+					margin-right: .35em;
+				}
+				:host(.hide-name) .name,
+				.normal-chat-name-hidden .name {
+					display: none !important;
+				}
+				.body {
+					color: #111;
+					overflow: visible;
+				}
 			img:not(.photo),
 			svg {
 				height: auto !important;
@@ -191,6 +198,7 @@ export class NormalChatView {
 	syncFromStorage() {
 		this.setEnabled(readBooleanAppFlag(APP_NORMAL_CHAT_ATTR, APP_NORMAL_CHAT_KEY, false));
 		this.setFontScale(readNumberAppFlag(APP_NORMAL_CHAT_FONT_SCALE_ATTR, APP_NORMAL_CHAT_FONT_SCALE_KEY, 180));
+		this.setShowName(readBooleanAppFlag(APP_NORMAL_CHAT_SHOW_NAME_ATTR, APP_NORMAL_CHAT_SHOW_NAME_KEY, true));
 		this.setShowPhoto(readBooleanAppFlag(APP_NORMAL_CHAT_SHOW_PHOTO_ATTR, APP_NORMAL_CHAT_SHOW_PHOTO_KEY, true));
 		this.refreshDisplaySettings();
 	}
@@ -212,6 +220,14 @@ export class NormalChatView {
 		const normalized = Math.min(300, Math.max(70, Number.isFinite(scale) ? scale : 180));
 		const px = Math.round(24 * normalized / 100);
 		this.element.style.setProperty('--yt-lcf-normal-chat-font-size', `${px}px`);
+	}
+
+	/**
+	 * @param {boolean} showName
+	 */
+	setShowName(showName) {
+		this.showName = showName;
+		this.element.classList.toggle('hide-name', !showName);
 	}
 
 	/**
@@ -276,6 +292,7 @@ export class NormalChatView {
 	applyDisplaySettings(item) {
 		const photoPart = NORMAL_CHAT_PHOTO_PARTS.find(([className]) => item.classList.contains(className))?.[1];
 		const showByFlusher = photoPart ? s.parts[photoPart]?.photo !== false : true;
+		item.classList.toggle('normal-chat-name-hidden', !this.showName);
 		item.classList.toggle('normal-chat-photo-hidden', !this.showPhoto || !showByFlusher);
 	}
 
@@ -414,6 +431,7 @@ export class LiveChatController {
 			attributeFilter: [
 				APP_NORMAL_CHAT_ATTR,
 				APP_NORMAL_CHAT_FONT_SCALE_ATTR,
+				APP_NORMAL_CHAT_SHOW_NAME_ATTR,
 				APP_NORMAL_CHAT_SHOW_PHOTO_ATTR,
 			],
 		});

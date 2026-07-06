@@ -71,6 +71,9 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var prefs: SharedPreferences
     private lateinit var btnFullscreen: ImageButton
+    private lateinit var btnNormalChatFont: Button
+    private lateinit var btnNormalChatName: Button
+    private lateinit var btnNormalChatIcon: Button
 
     private var yccExtension: WebExtension? = null
     private var lcfExtension: WebExtension? = null
@@ -105,6 +108,7 @@ class MainActivity : Activity() {
     private var suppressFailedPageStopUntil = 0L
     private var currentOsFps = 0
     private var normalChatFontScale = DEFAULT_NORMAL_CHAT_FONT_SCALE
+    private var normalChatShowName = true
     private var normalChatShowIcon = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -120,6 +124,7 @@ class MainActivity : Activity() {
         pausePlaybackOnPipClose = prefs.getBoolean(PREF_PAUSE_ON_PIP_CLOSE, true)
         currentOsFps = prefs.getInt(PREF_FPS_LIMIT, 0)
         normalChatFontScale = prefs.getInt(PREF_NORMAL_CHAT_FONT_SCALE, DEFAULT_NORMAL_CHAT_FONT_SCALE)
+        normalChatShowName = prefs.getBoolean(PREF_NORMAL_CHAT_SHOW_NAME, true)
         normalChatShowIcon = prefs.getBoolean(PREF_NORMAL_CHAT_SHOW_ICON, true)
         applyEffectiveOsFps(showToast = false)
         setContentView(createUi())
@@ -414,17 +419,51 @@ class MainActivity : Activity() {
         }
         chatOnlyBar.addView(
             toolbarIconButton("再生/停止", R.drawable.ic_play_pause) { triggerYouTubePlayPauseShortcut() },
-            LinearLayout.LayoutParams(dp(56), dp(44)).apply {
-                marginEnd = dp(8)
+            LinearLayout.LayoutParams(dp(48), dp(44)).apply {
+                marginEnd = dp(4)
             },
+        )
+        btnNormalChatFont = toolbarButton(
+            label = "",
+            onClick = { cycleNormalChatFontScale() },
+            onLongClick = {
+                showNormalChatFontSizeDialog()
+                true
+            },
+        ).apply {
+            textSize = 11f
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+        }
+        chatOnlyBar.addView(
+            btnNormalChatFont,
+            LinearLayout.LayoutParams(dp(58), dp(44)).apply { marginEnd = dp(4) },
+        )
+        btnNormalChatName = toolbarButton("名", onClick = { setNormalChatShowName(!normalChatShowName) }).apply {
+            textSize = 11f
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+        }
+        chatOnlyBar.addView(
+            btnNormalChatName,
+            LinearLayout.LayoutParams(dp(46), dp(44)).apply { marginEnd = dp(4) },
+        )
+        btnNormalChatIcon = toolbarButton("顔", onClick = { setNormalChatShowIcon(!normalChatShowIcon) }).apply {
+            textSize = 11f
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+        }
+        chatOnlyBar.addView(
+            btnNormalChatIcon,
+            LinearLayout.LayoutParams(dp(46), dp(44)).apply { marginEnd = dp(8) },
         )
         chatOnlyBar.addView(
             toolbarButton("チャット専用を終了", onClick = { setChatOnlyMode(false) }).apply {
-                textSize = 14f
-                setPadding(dp(18), dp(8), dp(18), dp(8))
+                textSize = 12f
+                setSingleLine(true)
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(dp(10), dp(8), dp(10), dp(8))
             },
-            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(44)),
+            LinearLayout.LayoutParams(0, dp(44), 1f),
         )
+        updateNormalChatControls()
         root.addView(chatOnlyBar, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         return root
     }
@@ -522,15 +561,18 @@ class MainActivity : Activity() {
 
         root.addView(materialSwitchCard(
             context = context,
+            title = "通常チャットのユーザー名",
+            summary = "チャット行のユーザー名を表示",
+            isChecked = normalChatShowName,
+            onCheckedChange = { checked -> setNormalChatShowName(checked) },
+        ))
+
+        root.addView(materialSwitchCard(
+            context = context,
             title = "通常チャットのアイコン",
             summary = "チャット行のユーザーアイコンを表示",
             isChecked = normalChatShowIcon,
-            onCheckedChange = { checked ->
-                normalChatShowIcon = checked
-                prefs.edit().putBoolean(PREF_NORMAL_CHAT_SHOW_ICON, checked).apply()
-                applyNormalChatModeToPage(chatOnlyModeEnabled)
-                status.text = "通常チャットのアイコン: ${if (checked) "ON" else "OFF"}"
-            },
+            onCheckedChange = { checked -> setNormalChatShowIcon(checked) },
         ))
 
         root.addView(materialSwitchCard(
@@ -747,7 +789,7 @@ class MainActivity : Activity() {
 
     private fun showNormalChatFontSizeDialog() {
         val options = arrayOf("小さめ 100%", "標準 140%", "大きめ 180%", "かなり大きめ 220%", "特大 260%", "最大 300%")
-        val values = intArrayOf(100, 140, 180, 220, 260, 300)
+        val values = NORMAL_CHAT_FONT_SCALES
         val dialog = BottomSheetDialog(this, R.style.YTFlowSettingsBottomSheetDialog)
         val context = dialog.context
         val controlTint = ColorStateList(
@@ -786,10 +828,7 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(0, 0, 0, 0)
                 setOnClickListener {
-                    normalChatFontScale = values[index]
-                    prefs.edit().putInt(PREF_NORMAL_CHAT_FONT_SCALE, normalChatFontScale).apply()
-                    applyNormalChatModeToPage(chatOnlyModeEnabled)
-                    status.text = "通常チャット文字サイズ: ${normalChatFontScale}%"
+                    setNormalChatFontScale(values[index])
                     dialog.dismiss()
                 }
             }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)))
@@ -810,6 +849,57 @@ class MainActivity : Activity() {
             dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
         }
         dialog.show()
+    }
+
+    private fun cycleNormalChatFontScale() {
+        val currentIndex = NORMAL_CHAT_FONT_SCALES.indexOf(normalChatFontScale)
+        val nextIndex = if (currentIndex >= 0) {
+            (currentIndex + 1) % NORMAL_CHAT_FONT_SCALES.size
+        } else {
+            NORMAL_CHAT_FONT_SCALES.indexOfFirst { it >= normalChatFontScale }.takeIf { it >= 0 } ?: 0
+        }
+        setNormalChatFontScale(NORMAL_CHAT_FONT_SCALES[nextIndex])
+    }
+
+    private fun setNormalChatFontScale(scale: Int) {
+        normalChatFontScale = scale.coerceIn(100, 300)
+        prefs.edit().putInt(PREF_NORMAL_CHAT_FONT_SCALE, normalChatFontScale).apply()
+        applyNormalChatSettings()
+        status.text = "通常チャット文字サイズ: ${normalChatFontScale}%"
+    }
+
+    private fun setNormalChatShowName(show: Boolean) {
+        normalChatShowName = show
+        prefs.edit().putBoolean(PREF_NORMAL_CHAT_SHOW_NAME, show).apply()
+        applyNormalChatSettings()
+        status.text = "通常チャットのユーザー名: ${if (show) "ON" else "OFF"}"
+    }
+
+    private fun setNormalChatShowIcon(show: Boolean) {
+        normalChatShowIcon = show
+        prefs.edit().putBoolean(PREF_NORMAL_CHAT_SHOW_ICON, show).apply()
+        applyNormalChatSettings()
+        status.text = "通常チャットのアイコン: ${if (show) "ON" else "OFF"}"
+    }
+
+    private fun applyNormalChatSettings() {
+        updateNormalChatControls()
+        applyNormalChatModeToPage(false)
+        applyNormalChatSettingsToChatSession()
+    }
+
+    private fun updateNormalChatControls() {
+        if (::btnNormalChatFont.isInitialized) {
+            btnNormalChatFont.text = "字${normalChatFontScale}"
+        }
+        if (::btnNormalChatName.isInitialized) {
+            btnNormalChatName.text = if (normalChatShowName) "名ON" else "名OFF"
+            btnNormalChatName.setTextColor(if (normalChatShowName) Color.WHITE else Color.parseColor("#9AA0A6"))
+        }
+        if (::btnNormalChatIcon.isInitialized) {
+            btnNormalChatIcon.text = if (normalChatShowIcon) "顔ON" else "顔OFF"
+            btnNormalChatIcon.setTextColor(if (normalChatShowIcon) Color.WHITE else Color.parseColor("#9AA0A6"))
+        }
     }
 
     private fun applyOsFps(fps: Int, showToast: Boolean = false) {
@@ -976,7 +1066,8 @@ class MainActivity : Activity() {
                         })();
                     """.trimIndent()
                     session.loadUri("javascript:${Uri.encode(script)}")
-                    applyNormalChatModeToPage(chatOnlyModeEnabled)
+                    applyNormalChatModeToPage(false)
+                    applyNormalChatSettingsToChatSession()
                 }
             }
         }
@@ -1018,8 +1109,9 @@ class MainActivity : Activity() {
                     } else {
                         val url = params["url"]?.let { java.net.URLDecoder.decode(it, "UTF-8") }
                         val kind = params["kind"]?.takeIf { it.isNotBlank() }
+                        val offsetMs = params["offsetMs"]?.toLongOrNull()
                         if (url != null && isYouTubeChatUrl(url)) {
-                            openChatOnlySurface(url, kind)
+                            openChatOnlySurface(url, kind, offsetMs)
                         } else {
                             status.text = "チャットURLが不正です"
                             Toast.makeText(this@MainActivity, "チャットURLが不正です", Toast.LENGTH_SHORT).show()
@@ -2008,7 +2100,6 @@ class MainActivity : Activity() {
         applyNormalChatModeToPage(false)
         if (activeSurface == BrowserSurface.CHAT) {
             switchToSurface(BrowserSurface.VIDEO)
-            loadUrlInto(BrowserSurface.VIDEO, videoUrl, replaceHistory = true)
         }
         stopChatOnlySession()
         applyEffectiveOsFps(showToast = false)
@@ -2145,11 +2236,35 @@ class MainActivity : Activity() {
                 return '';
               };
 
+              const playbackOffsetMs = () => {
+                try {
+                  const video = document.querySelector('video');
+                  if (video && Number.isFinite(video.currentTime) && video.currentTime > 0) {
+                    return Math.max(0, Math.floor(video.currentTime * 1000));
+                  }
+                  const rawTime = new URL(location.href).searchParams.get('t') || '';
+                  const directSeconds = rawTime.match(/^(\d+)s?$/i);
+                  if (directSeconds) return Number.parseInt(directSeconds[1], 10) * 1000;
+                  const parts = rawTime.match(/(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?/i);
+                  if (parts && (parts[1] || parts[2] || parts[3])) {
+                    const seconds =
+                      (Number.parseInt(parts[1] || '0', 10) * 3600) +
+                      (Number.parseInt(parts[2] || '0', 10) * 60) +
+                      Number.parseInt(parts[3] || '0', 10);
+                    return seconds * 1000;
+                  }
+                  return 0;
+                } catch (_) {
+                  return 0;
+                }
+              };
+
               const send = (url, source) => {
                 const kind = url.includes('/live_chat_replay') ? 'archive' : 'live';
                 alert(
                   'ytcc-open-chat:url=' + encodeURIComponent(url) +
                   '&kind=' + encodeURIComponent(kind) +
+                  '&offsetMs=' + encodeURIComponent(String(playbackOffsetMs())) +
                   '&source=' + encodeURIComponent(source)
                 );
               };
@@ -2182,8 +2297,8 @@ class MainActivity : Activity() {
         videoSession.loadUri("javascript:${Uri.encode(script)}")
     }
 
-    private fun openChatOnlySurface(rawChatUrl: String, playbackKind: String?) {
-        val normalized = normalizeChatOnlyUrl(rawChatUrl)
+    private fun openChatOnlySurface(rawChatUrl: String, playbackKind: String?, playbackOffsetMs: Long? = null) {
+        val normalized = normalizeChatOnlyUrl(rawChatUrl, playbackOffsetMs)
         if (!isYouTubeChatUrl(normalized)) {
             status.text = "チャットURLが不正です"
             setChatOnlyMode(false)
@@ -2196,7 +2311,7 @@ class MainActivity : Activity() {
         chatOnlyWatchModeActive = false
         prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, true).apply()
         applyNormalChatModeToPage(false)
-        pauseVideoPlayback()
+        if (kind == "live") pauseVideoPlayback()
         resetChatSessionForChatOnly()
         switchToSurface(BrowserSurface.CHAT)
         applyBrowserMode(BrowserSurface.CHAT, BrowserMode.DESKTOP)
@@ -2253,23 +2368,34 @@ class MainActivity : Activity() {
 
     private fun applyNormalChatModeToPage(enabled: Boolean) {
         if (!::videoSession.isInitialized) return
+        videoSession.loadUri("javascript:${Uri.encode(normalChatSettingsScript(enabled))}")
+    }
+
+    private fun applyNormalChatSettingsToChatSession() {
+        if (!::chatSession.isInitialized || !chatSessionOpen) return
+        chatSession.loadUri("javascript:${Uri.encode(normalChatSettingsScript(true))}")
+    }
+
+    private fun normalChatSettingsScript(enabled: Boolean): String {
         val value = if (enabled) "1" else "0"
+        val showNameValue = if (normalChatShowName) "1" else "0"
         val showIconValue = if (normalChatShowIcon) "1" else "0"
-        val script = """
+        return """
             (() => {
               const root = document.documentElement;
               try { root.setAttribute('data-ytlcf-app-normal-chat-enabled', '$value'); } catch (_) {}
               try { root.setAttribute('data-ytlcf-app-normal-chat-font-scale', '$normalChatFontScale'); } catch (_) {}
+              try { root.setAttribute('data-ytlcf-app-normal-chat-show-name', '$showNameValue'); } catch (_) {}
               try { root.setAttribute('data-ytlcf-app-normal-chat-show-photo', '$showIconValue'); } catch (_) {}
               try { localStorage.setItem('ytlcf-app-normal-chat-enabled', '$value'); } catch (_) {}
               try { localStorage.setItem('ytlcf-app-normal-chat-font-scale', '$normalChatFontScale'); } catch (_) {}
+              try { localStorage.setItem('ytlcf-app-normal-chat-show-name', '$showNameValue'); } catch (_) {}
               try { localStorage.setItem('ytlcf-app-normal-chat-show-photo', '$showIconValue'); } catch (_) {}
               window.dispatchEvent(new Event('ytlcf-normal-chat-change'));
               window.postMessage({ type: 'ytlcf-normal-chat-change' }, '*');
               window.dispatchEvent(new Event('resize'));
             })()
         """.trimIndent()
-        videoSession.loadUri("javascript:${Uri.encode(script)}")
     }
 
     private fun withAppFlags(rawUrl: String): String {
@@ -2286,6 +2412,9 @@ class MainActivity : Activity() {
             .appendQueryParameter("ytcc_app_ycc", if (youtubeChatCleanerEnabled) "1" else "0")
             .appendQueryParameter("ytcc_app_lcf", if (liveChatFlusherEnabled) "1" else "0")
             .appendQueryParameter("ytcc_app_chat_only", if (chatOnlyModeEnabled) "1" else "0")
+            .appendQueryParameter("ytcc_app_normal_chat_font_scale", normalChatFontScale.toString())
+            .appendQueryParameter("ytcc_app_normal_chat_show_name", if (normalChatShowName) "1" else "0")
+            .appendQueryParameter("ytcc_app_normal_chat_show_photo", if (normalChatShowIcon) "1" else "0")
             .build()
             .toString()
     }
@@ -2309,19 +2438,24 @@ class MainActivity : Activity() {
         return uri.getQueryParameter("url")?.takeIf { isYouTubeUrl(it) }
     }
 
-    private fun normalizeChatOnlyUrl(rawUrl: String): String {
+    private fun normalizeChatOnlyUrl(rawUrl: String, playbackOffsetMs: Long? = null): String {
         val uri = runCatching { Uri.parse(rawUrl) }.getOrNull() ?: return rawUrl
         val host = uri.host?.lowercase() ?: return rawUrl
         if (host !in YOUTUBE_HOSTS) return rawUrl
         if (!isYouTubeChatUrl(rawUrl)) return rawUrl
+        val path = uri.path.orEmpty()
         val builder = uri.buildUpon().authority("www.youtube.com").clearQuery()
         for (key in uri.queryParameterNames) {
-            if (key == "is_popout") continue
+            if (key == "is_popout" || key == "ytcc_chat_offset_ms") continue
             for (value in uri.getQueryParameters(key)) {
                 builder.appendQueryParameter(key, value)
             }
         }
-        return builder.appendQueryParameter("is_popout", "1").build().toString()
+        builder.appendQueryParameter("is_popout", "1")
+        playbackOffsetMs
+            ?.takeIf { it > 0 && path == "/live_chat_replay" }
+            ?.let { builder.appendQueryParameter("ytcc_chat_offset_ms", it.toString()) }
+        return builder.build().toString()
     }
 
     private fun chatPlaybackKindForUrl(rawUrl: String): String {
@@ -2477,8 +2611,10 @@ class MainActivity : Activity() {
         private const val PREF_CHAT_ONLY_MODE = "chat_only_mode"
         private const val PREF_PAUSE_ON_PIP_CLOSE = "pause_on_pip_close"
         private const val PREF_NORMAL_CHAT_FONT_SCALE = "normal_chat_font_scale"
+        private const val PREF_NORMAL_CHAT_SHOW_NAME = "normal_chat_show_name"
         private const val PREF_NORMAL_CHAT_SHOW_ICON = "normal_chat_show_icon"
         private const val DEFAULT_NORMAL_CHAT_FONT_SCALE = 180
+        private val NORMAL_CHAT_FONT_SCALES = intArrayOf(100, 140, 180, 220, 260, 300)
         private const val CHAT_ONLY_FORCED_FPS = 15
         private const val PREF_LAST_VIDEO_URL = "last_video_url"
         private const val PREF_LAST_VIDEO_TIME = "last_video_time"

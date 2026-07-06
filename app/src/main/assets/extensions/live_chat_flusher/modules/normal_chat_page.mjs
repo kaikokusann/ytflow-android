@@ -12,23 +12,30 @@ export async function initializeNormalChatPage() {
 	const view = new NormalChatView();
 	const factory = new LiveChatItemFactory();
 	await factory.load();
+	applyUrlSettings();
 	document.documentElement.setAttribute('data-ytlcf-app-normal-chat-enabled', '1');
 	view.syncFromStorage();
 	view.setEnabled(true);
 	document.body.append(view.element);
 	installPageStyle();
+	installSettingsSync(view);
 
 	document.addEventListener('ytlcf-action', event => {
 		handleActions(event.detail || [], view, factory);
 	}, { passive: true });
 
-	const continuation = new URL(location.href).searchParams.get('continuation');
+	const params = new URL(location.href).searchParams;
+	const continuation = params.get('continuation');
 	if (!continuation) return;
+	const initialOffset = Number.parseInt(params.get('ytcc_chat_offset_ms') || '0', 10);
 
 	const abortController = new AbortController();
 	try {
 		if (location.pathname === '/live_chat_replay') {
-			for await (const containers of getReplayChatActionsAsyncIterable(abortController.signal, continuation, { auth: false })) {
+			for await (const containers of getReplayChatActionsAsyncIterable(abortController.signal, continuation, {
+				auth: false,
+				offset: Number.isFinite(initialOffset) ? initialOffset : 0,
+			})) {
 				const actions = [];
 				for (const container of containers || []) {
 					actions.push(...(container.replayChatItemAction?.actions || []));
@@ -43,6 +50,40 @@ export async function initializeNormalChatPage() {
 	} catch (error) {
 		logger.warn('Normal chat page renderer stopped:', error);
 	}
+}
+
+function applyUrlSettings() {
+	const params = new URL(location.href).searchParams;
+	copyParamToStorageAndAttr(params, 'ytcc_app_normal_chat_font_scale', 'ytlcf-app-normal-chat-font-scale', 'data-ytlcf-app-normal-chat-font-scale');
+	copyParamToStorageAndAttr(params, 'ytcc_app_normal_chat_show_name', 'ytlcf-app-normal-chat-show-name', 'data-ytlcf-app-normal-chat-show-name');
+	copyParamToStorageAndAttr(params, 'ytcc_app_normal_chat_show_photo', 'ytlcf-app-normal-chat-show-photo', 'data-ytlcf-app-normal-chat-show-photo');
+}
+
+function copyParamToStorageAndAttr(params, paramName, storageKey, attrName) {
+	const value = params.get(paramName);
+	if (value == null) return;
+	document.documentElement.setAttribute(attrName, value);
+	try {
+		localStorage.setItem(storageKey, value);
+	} catch (_error) {}
+}
+
+function installSettingsSync(view) {
+	const sync = () => view.syncFromStorage();
+	window.addEventListener('storage', sync, { passive: true });
+	window.addEventListener('ytlcf-normal-chat-change', sync, { passive: true });
+	window.addEventListener('message', event => {
+		if (event.data?.type === 'ytlcf-normal-chat-change') sync();
+	}, { passive: true });
+	new MutationObserver(sync).observe(document.documentElement, {
+		attributes: true,
+		attributeFilter: [
+			'data-ytlcf-app-normal-chat-enabled',
+			'data-ytlcf-app-normal-chat-font-scale',
+			'data-ytlcf-app-normal-chat-show-name',
+			'data-ytlcf-app-normal-chat-show-photo',
+		],
+	});
 }
 
 function isEnabled() {
