@@ -127,9 +127,26 @@ export class NormalChatView {
 				vertical-align: .05em;
 			}
 			.name {
-				color: #16802a;
+				color: #5f6368;
 				font-weight: 750;
 				margin-right: .35em;
+			}
+			.normal .name {
+				color: #5f6368;
+			}
+			.member .name,
+			.membership .name,
+			.milestone .name {
+				color: var(--yt-live-chat-sponsor-color, #16802a);
+			}
+			.moderator .name {
+				color: var(--yt-live-chat-moderator-color, #1a73e8);
+			}
+			.owner .name {
+				color: var(--yt-live-chat-owner-color, #b77900);
+			}
+			.verified .name {
+				color: var(--yt-live-chat-author-chip-verified-background-color, #606060);
 			}
 			:host(.hide-name) .name,
 			.normal-chat-name-hidden .name {
@@ -143,6 +160,11 @@ export class NormalChatView {
 				color: #111;
 			}
 			:host(.hide-name) .member .body {
+				color: var(--yt-live-chat-sponsor-color, #16802a);
+				font-weight: 750;
+			}
+			:host(.hide-name) .membership .body,
+			:host(.hide-name) .milestone .body {
 				color: var(--yt-live-chat-sponsor-color, #16802a);
 				font-weight: 750;
 			}
