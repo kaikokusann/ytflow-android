@@ -1721,6 +1721,7 @@ class MainActivity : Activity() {
         
         if (fullScreen) setAppFullScreen(false)
         activeSurface = surface
+        updateRequestedOrientation()
         applyEffectiveOsFps(showToast = false) // 表示画面が変わったのでFPS制限を再評価・適用
         geckoView.setSession(activeSession())
         if (surface == BrowserSurface.CHAT || previousSurface == BrowserSurface.CHAT) {
@@ -1851,11 +1852,7 @@ class MainActivity : Activity() {
         fullScreen = enabled
         setPageAppFullScreenFlag(enabled)
         updateChromeForPictureInPicture()
-        requestedOrientation = if (enabled) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
+        updateRequestedOrientation()
         window.decorView.systemUiVisibility = if (enabled) {
             View.SYSTEM_UI_FLAG_FULLSCREEN or
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
@@ -1865,6 +1862,14 @@ class MainActivity : Activity() {
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         } else {
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        }
+    }
+
+    private fun updateRequestedOrientation() {
+        requestedOrientation = when {
+            chatOnlyModeEnabled && activeSurface == BrowserSurface.CHAT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            fullScreen -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
