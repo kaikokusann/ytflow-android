@@ -12,6 +12,13 @@ const DEFAULTS = {
 const APP_ENABLED_KEY = 'ytcc-app-ycc-enabled';
 const CHAT_ONLY_KEY = 'ytcc-app-chat-only-enabled';
 const CHAT_ONLY_CLASS = 'ytcc-chat-only';
+const CHAT_HEADER_SELECTORS = [
+  'yt-live-chat-header-renderer',
+  'yt-live-chat-renderer #header',
+  '#chat-header'
+];
+
+let chatOnlyPlaybackTimerIds = [];
 
 const CLASS_MAP = {
   enabled: 'ytcc-enabled',
@@ -120,24 +127,42 @@ function applyChatOnlyMode() {
   const enabled = isAppEnabled() && isChatOnlyEnabled();
   document.documentElement.classList.toggle(CHAT_ONLY_CLASS, enabled);
   if (document.body) document.body.classList.toggle(CHAT_ONLY_CLASS, enabled);
-  if (!enabled) return;
-  pauseLiveVideoOnly();
+  if (!enabled) {
+    clearChatOnlyPlaybackTimers();
+    return;
+  }
+  scheduleChatOnlyPlaybackControl();
   window.dispatchEvent(new Event('resize'));
-  setTimeout(() => {
-    pauseLiveVideoOnly();
-    window.dispatchEvent(new Event('resize'));
-  }, 500);
+}
+
+function scheduleChatOnlyPlaybackControl() {
+  clearChatOnlyPlaybackTimers();
+  for (const delay of [0, 500, 1500, 3000]) {
+    const timerId = setTimeout(() => {
+      pauseLiveVideoOnly();
+      window.dispatchEvent(new Event('resize'));
+    }, delay);
+    chatOnlyPlaybackTimerIds.push(timerId);
+  }
+}
+
+function clearChatOnlyPlaybackTimers() {
+  for (const timerId of chatOnlyPlaybackTimerIds) {
+    clearTimeout(timerId);
+  }
+  chatOnlyPlaybackTimerIds = [];
 }
 
 function pauseLiveVideoOnly() {
-  if (!isLiveVideo()) return;
-  const video = document.querySelector('#movie_player video') || document.querySelector('video');
+  if (detectChatPlaybackKind() !== 'live') return;
+  const mediaDocument = getTopDocument() || document;
+  const video = mediaDocument.querySelector('#movie_player video') || mediaDocument.querySelector('video');
   try {
     if (video && !video.paused) video.pause();
   } catch (_error) {
     // Ignore playback control failures.
   }
-  const player = document.querySelector('#movie_player');
+  const player = mediaDocument.querySelector('#movie_player');
   try {
     if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
   } catch (_error) {
@@ -145,17 +170,59 @@ function pauseLiveVideoOnly() {
   }
 }
 
-function isLiveVideo() {
-  const player = document.querySelector('#movie_player');
-  if (player && String(player.className || '').includes('ytp-livebadge-color')) return true;
-  if (document.querySelector('.ytp-live-badge-is-livehead')) return true;
-  if (document.querySelector('.ytp-time-display.ytp-live')) return true;
-  if (document.querySelector('.ytp-autonav-live-stamp')) return true;
-  const video = document.querySelector('video');
-  if (video && video.duration === Infinity) return true;
-  const timeDisplay = document.querySelector('.ytp-time-display')?.textContent || '';
-  if (timeDisplay.includes('ライブ') || /\bLIVE\b/i.test(timeDisplay)) return true;
-  return false;
+function detectChatPlaybackKind() {
+  const texts = collectChatHeaderTexts();
+  if (texts.some(text => text.includes('リプレイ'))) return 'archive';
+  if (texts.some(isLiveChatHeaderText)) return 'live';
+  return 'unknown';
+}
+
+function collectChatHeaderTexts() {
+  const docs = collectReadableDocuments();
+  const texts = [];
+  for (const doc of docs) {
+    for (const selector of CHAT_HEADER_SELECTORS) {
+      for (const header of doc.querySelectorAll(selector)) {
+        const text = normalizeText(header.textContent || '');
+        if (text) texts.push(text);
+      }
+    }
+  }
+  return texts;
+}
+
+function collectReadableDocuments() {
+  const docs = [document];
+  const topDocument = getTopDocument();
+  if (topDocument && topDocument !== document) docs.push(topDocument);
+  for (const doc of [...docs]) {
+    for (const iframe of doc.querySelectorAll('iframe')) {
+      try {
+        const iframeDocument = iframe.contentDocument;
+        if (iframeDocument && !docs.includes(iframeDocument)) docs.push(iframeDocument);
+      } catch (_error) {
+        // Ignore cross-origin frames.
+      }
+    }
+  }
+  return docs;
+}
+
+function getTopDocument() {
+  try {
+    return top?.document || null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function normalizeText(text) {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function isLiveChatHeaderText(text) {
+  const compactText = text.replace(/\s+/g, '');
+  return compactText.includes('トップチャット') || compactText.startsWith('チャット');
 }
 
 function normalizeChatWidth(value) {
