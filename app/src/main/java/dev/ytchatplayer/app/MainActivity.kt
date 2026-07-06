@@ -24,6 +24,7 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Bundle
+import android.text.TextUtils
 import android.util.Rational
 import android.util.Log
 import android.view.Gravity
@@ -335,8 +336,12 @@ class MainActivity : Activity() {
             setTextColor(0xFFB0B0B0.toInt())
             setPadding(dp(10), dp(4), dp(10), dp(4))
             setBackgroundColor(BLACK)
+            ellipsize = TextUtils.TruncateAt.END
+            includeFontPadding = false
+            maxLines = 1
+            isSingleLine = true
+            gravity = Gravity.CENTER_VERTICAL
         }
-        root.addView(status, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
 
         navBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -371,6 +376,7 @@ class MainActivity : Activity() {
 
         addNavButton(toolbarIconButton("更新", R.drawable.ic_refresh) { activeSession().reload() })
         root.addView(navBar, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        root.addView(status, LinearLayout.LayoutParams.MATCH_PARENT, dp(24))
 
         chatOnlyBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
