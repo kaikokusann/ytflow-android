@@ -57,6 +57,7 @@ class MainActivity : Activity() {
     private lateinit var geckoView: GeckoView
     private lateinit var topBar: LinearLayout
     private lateinit var navBar: LinearLayout
+    private lateinit var chatOnlyBar: LinearLayout
     private lateinit var address: EditText
     private lateinit var status: TextView
     private lateinit var prefs: SharedPreferences
@@ -369,6 +370,22 @@ class MainActivity : Activity() {
 
         addNavButton(toolbarIconButton("更新", R.drawable.ic_refresh) { activeSession().reload() })
         root.addView(navBar, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+
+        chatOnlyBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(6), dp(8), dp(8))
+            setBackgroundColor(BLACK)
+            visibility = View.GONE
+        }
+        chatOnlyBar.addView(
+            toolbarButton("チャット専用を終了", onClick = { setChatOnlyMode(false) }).apply {
+                textSize = 14f
+                setPadding(dp(18), dp(8), dp(18), dp(8))
+            },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(44)),
+        )
+        root.addView(chatOnlyBar, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         return root
     }
 
@@ -441,12 +458,7 @@ class MainActivity : Activity() {
         root.addView(createSwitchOnlyRow(
             title = "通常チャット専用モード",
             isChecked = chatOnlyModeEnabled,
-            onCheckedChange = { checked ->
-                chatOnlyModeEnabled = checked
-                prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, checked).apply()
-                status.text = "通常チャット専用モード: ${if (checked) "ON" else "OFF"}"
-                loadUrl(withAppFlags(currentUrl()))
-            },
+            onCheckedChange = { checked -> setChatOnlyMode(checked) },
         ))
 
         root.addView(createSwitchOnlyRow(
@@ -1445,9 +1457,13 @@ class MainActivity : Activity() {
 
     private fun updateChromeForPictureInPicture() {
         val hideChrome = fullScreen || inPictureInPicture
-        topBar.visibility = if (hideChrome) View.GONE else View.VISIBLE
-        status.visibility = if (hideChrome) View.GONE else View.VISIBLE
-        navBar.visibility = if (hideChrome) View.GONE else View.VISIBLE
+        val hideForChatOnly = chatOnlyModeEnabled && activeSurface == BrowserSurface.VIDEO
+        topBar.visibility = if (hideChrome || hideForChatOnly) View.GONE else View.VISIBLE
+        status.visibility = if (hideChrome || hideForChatOnly) View.GONE else View.VISIBLE
+        navBar.visibility = if (hideChrome || hideForChatOnly) View.GONE else View.VISIBLE
+        if (::chatOnlyBar.isInitialized) {
+            chatOnlyBar.visibility = if (!hideChrome && hideForChatOnly) View.VISIBLE else View.GONE
+        }
     }
 
     private fun enterVideoFullScreen() {
@@ -1576,6 +1592,14 @@ class MainActivity : Activity() {
             PREF_LCF_ENABLED -> liveChatFlusherEnabled = enabled
         }
         status.text = "$label: ${if (enabled) "ON" else "OFF"}"
+        loadUrl(withAppFlags(currentUrl()))
+    }
+
+    private fun setChatOnlyMode(enabled: Boolean) {
+        chatOnlyModeEnabled = enabled
+        prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, enabled).apply()
+        status.text = "通常チャット専用モード: ${if (enabled) "ON" else "OFF"}"
+        updateChromeForPictureInPicture()
         loadUrl(withAppFlags(currentUrl()))
     }
 

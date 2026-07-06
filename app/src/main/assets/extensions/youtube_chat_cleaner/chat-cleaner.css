@@ -203,3 +203,64 @@
 :root.ytcc-enabled.ytcc-chat-only #yt-lcf-panel {
   display: none !important;
 }
+
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-app,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-renderer {
+  font-size: 24px !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-item-list-renderer #item-scroller {
+  padding-top: 8px !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-text-message-renderer,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-paid-message-renderer,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-paid-sticker-renderer,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-membership-item-renderer,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-viewer-engagement-message-renderer {
+  font-size: 24px !important;
+  line-height: 1.45 !important;
+  padding: 10px 16px !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-text-message-renderer #message,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-text-message-renderer #content,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-paid-message-renderer #content,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-paid-message-renderer #message,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-membership-item-renderer #content,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-membership-item-renderer #message {
+  font-size: 24px !important;
+  line-height: 1.45 !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-paid-message-renderer #card,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-paid-sticker-renderer #card,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-membership-item-renderer #card {
+  margin: 10px 14px !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-ticker-renderer,
+:root.ytcc-enabled.ytcc-chat-only #ticker {
+  display: none !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-header-renderer,
+:root.ytcc-enabled.ytcc-chat-only #chat-messages > yt-live-chat-mode-change-message-renderer,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-mode-change-message-renderer {
+  display: none !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-renderer,
+:root.ytcc-enabled.ytcc-chat-only yt-live-chat-item-list-renderer,
+:root.ytcc-enabled.ytcc-chat-only #item-list,
+:root.ytcc-enabled.ytcc-chat-only #items,
+:root.ytcc-enabled.ytcc-chat-only #item-scroller {
+  inset: 0 !important;
+  height: 100% !important;
+  max-height: none !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only #items.yt-live-chat-item-list-renderer {
+  padding-bottom: 24px !important;
+  padding-top: 12px !important;
+}

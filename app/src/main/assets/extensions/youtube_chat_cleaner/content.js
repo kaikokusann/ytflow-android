@@ -107,7 +107,8 @@ function clearClasses() {
 
 function isChatOnlyEnabled() {
   try {
-    return localStorage.getItem(CHAT_ONLY_KEY) === '1';
+    if (localStorage.getItem(CHAT_ONLY_KEY) === '1') return true;
+    return top?.localStorage?.getItem(CHAT_ONLY_KEY) === '1';
   } catch (_error) {
     return false;
   }
@@ -116,6 +117,7 @@ function isChatOnlyEnabled() {
 function applyChatOnlyMode() {
   const enabled = isAppEnabled() && isChatOnlyEnabled();
   document.documentElement.classList.toggle(CHAT_ONLY_CLASS, enabled);
+  if (document.body) document.body.classList.toggle(CHAT_ONLY_CLASS, enabled);
   if (!enabled) return;
   pauseLiveVideoOnly();
   window.dispatchEvent(new Event('resize'));
