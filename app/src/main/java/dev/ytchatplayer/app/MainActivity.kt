@@ -38,9 +38,9 @@ import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.widget.NestedScrollView
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
@@ -76,6 +76,8 @@ class MainActivity : Activity() {
     private lateinit var btnNormalChatInterval: Button
     private lateinit var btnNormalChatName: Button
     private lateinit var btnNormalChatIcon: Button
+    private var activeSettingsDialog: BottomSheetDialog? = null
+    private var activeSettingsScrollView: NestedScrollView? = null
 
     private var yccExtension: WebExtension? = null
     private var lcfExtension: WebExtension? = null
@@ -246,6 +248,15 @@ class MainActivity : Activity() {
         setPageAppPictureInPictureFlag(isInPictureInPictureMode)
         if (isInPictureInPictureMode) showOrUpdateMediaNotification()
         updateChromeForPictureInPicture()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        activeSettingsDialog?.let { dialog ->
+            activeSettingsScrollView?.post {
+                if (activeSettingsDialog === dialog) configureSettingsBottomSheet(dialog)
+            }
+        }
     }
 
     private fun createMediaNotificationSupport() {
@@ -500,12 +511,12 @@ class MainActivity : Activity() {
     private fun showSettingsMenu() {
         val dialog = BottomSheetDialog(this, R.style.YTFlowSettingsBottomSheetDialog)
         val context = dialog.context
-        val root = LinearLayout(context).apply {
+        val sheetRoot = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(10), dp(20), dp(24))
+            setPadding(dp(20), dp(10), dp(20), 0)
         }
 
-        root.addView(View(context).apply {
+        sheetRoot.addView(View(context).apply {
             background = roundedDrawable(Color.parseColor("#5E5E5E"), 2)
         }, LinearLayout.LayoutParams(dp(44), dp(4)).apply {
             gravity = Gravity.CENTER_HORIZONTAL
@@ -537,9 +548,14 @@ class MainActivity : Activity() {
             minimumHeight = dp(36)
             setOnClickListener { dialog.dismiss() }
         })
-        root.addView(header)
+        sheetRoot.addView(header)
 
-        root.addView(materialSwitchCard(
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, dp(24))
+        }
+
+        content.addView(materialSwitchCard(
             context = context,
             title = "YT Chat Cleaner",
             summary = "名前、アイコン、チャット幅などを調整",
@@ -552,7 +568,7 @@ class MainActivity : Activity() {
             }
         ))
 
-        root.addView(materialSwitchCard(
+        content.addView(materialSwitchCard(
             context = context,
             title = "LiveChat Flusher",
             summary = "読み込み方式・自動オープンなどを調整",
@@ -565,7 +581,7 @@ class MainActivity : Activity() {
             }
         ))
 
-        root.addView(materialActionCard(
+        content.addView(materialActionCard(
             context = context,
             title = "弾幕文字サイズ",
             summary = "現在: ${lcfDanmakuFontSizePx}px",
@@ -576,7 +592,7 @@ class MainActivity : Activity() {
             }
         ))
 
-        root.addView(materialSwitchCard(
+        content.addView(materialSwitchCard(
             context = context,
             title = "弾幕アイコン",
             summary = "弾幕にユーザーアイコンを表示",
@@ -584,7 +600,7 @@ class MainActivity : Activity() {
             onCheckedChange = { checked -> setLcfDanmakuShowIcon(checked) },
         ))
 
-        root.addView(materialSwitchCard(
+        content.addView(materialSwitchCard(
             context = context,
             title = "通常チャット専用モード",
             summary = "動画ページでチャットだけを大きく表示",
@@ -596,7 +612,7 @@ class MainActivity : Activity() {
             },
         ))
 
-        root.addView(materialSwitchCard(
+        content.addView(materialSwitchCard(
             context = context,
             title = "PiPを×で閉じたら一時停止",
             summary = "PiPを閉じる操作で動画も停止",
@@ -608,7 +624,7 @@ class MainActivity : Activity() {
             },
         ))
 
-        root.addView(materialActionCard(
+        content.addView(materialActionCard(
             context = context,
             title = "FPS制限機能",
             summary = "現在: ${if (currentOsFps > 0) "${currentOsFps}fps" else "自動"}",
@@ -618,28 +634,45 @@ class MainActivity : Activity() {
                 showOsFpsDialog()
             }
         ))
-        root.addView(View(context), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(20)))
+        content.addView(View(context), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(20)))
 
-        val scrollView = ScrollView(context).apply {
+        val scrollView = NestedScrollView(context).apply {
             isFillViewport = true
             clipToPadding = false
-            addView(root)
+            isNestedScrollingEnabled = true
+            addView(content)
         }
-        dialog.setContentView(scrollView)
+        sheetRoot.addView(scrollView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        dialog.setContentView(sheetRoot)
         dialog.setOnShowListener {
-            val availableHeight = resources.displayMetrics.heightPixels - statusBarHeight() - dp(24)
-            val preferredHeight = (resources.displayMetrics.heightPixels * 0.78f).toInt()
-            val targetHeight = minOf(availableHeight, maxOf(dp(620), preferredHeight))
-            dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.let { sheet ->
-                sheet.layoutParams = sheet.layoutParams.apply {
-                    height = targetHeight
-                }
-                sheet.requestLayout()
+            activeSettingsDialog = dialog
+            activeSettingsScrollView = scrollView
+            configureSettingsBottomSheet(dialog)
+        }
+        dialog.setOnDismissListener {
+            if (activeSettingsDialog === dialog) {
+                activeSettingsDialog = null
+                activeSettingsScrollView = null
             }
-            dialog.behavior.skipCollapsed = true
-            dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
         }
         dialog.show()
+    }
+
+    private fun configureSettingsBottomSheet(dialog: BottomSheetDialog) {
+        val metrics = resources.displayMetrics
+        val availableHeight = metrics.heightPixels - statusBarHeight() - dp(12)
+        val preferredRatio = if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 0.92f else 0.82f
+        val preferredHeight = (metrics.heightPixels * preferredRatio).toInt()
+        val targetHeight = minOf(availableHeight, maxOf(dp(420), preferredHeight))
+        dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.let { sheet ->
+            sheet.layoutParams = sheet.layoutParams.apply {
+                height = targetHeight
+            }
+            sheet.requestLayout()
+        }
+        dialog.behavior.skipCollapsed = true
+        dialog.behavior.setDraggableOnNestedScroll(false)
+        dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
     }
 
     private fun materialSwitchCard(
@@ -863,9 +896,10 @@ class MainActivity : Activity() {
             gravity = Gravity.END
         })
 
-        val scrollView = ScrollView(context).apply {
+        val scrollView = NestedScrollView(context).apply {
             isFillViewport = true
             clipToPadding = false
+            isNestedScrollingEnabled = true
             addView(root)
         }
         dialog.setContentView(scrollView)
@@ -879,6 +913,7 @@ class MainActivity : Activity() {
                 sheet.requestLayout()
             }
             dialog.behavior.skipCollapsed = true
+            dialog.behavior.setDraggableOnNestedScroll(false)
             dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
         }
         dialog.show()
