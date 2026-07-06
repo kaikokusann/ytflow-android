@@ -25,17 +25,6 @@ const APP_NORMAL_CHAT_FONT_SCALE_ATTR = 'data-ytlcf-app-normal-chat-font-scale';
 const APP_NORMAL_CHAT_SHOW_NAME_ATTR = 'data-ytlcf-app-normal-chat-show-name';
 const APP_NORMAL_CHAT_SHOW_PHOTO_ATTR = 'data-ytlcf-app-normal-chat-show-photo';
 const APP_NORMAL_CHAT_ACTIVE_CLASS = 'ytlcf-app-normal-chat-active';
-const NORMAL_CHAT_PHOTO_PARTS = Object.freeze([
-	['normal', 'normal'],
-	['member', 'member'],
-	['moderator', 'moderator'],
-	['owner', 'owner'],
-	['verified', 'verified'],
-	['superchat', 'paid_message'],
-	['supersticker', 'paid_sticker'],
-	['milestone', 'milestone'],
-	['membership', 'membership'],
-]);
 
 export class NormalChatView {
 	/** @type {HTMLDivElement} */
@@ -111,7 +100,8 @@ export class NormalChatView {
 				pointer-events: none;
 				text-decoration: none;
 			}
-			.photo {
+			.photo,
+			[part="photo"] {
 				border-radius: 50%;
 				height: 1.4em !important;
 				margin-right: .35em;
@@ -121,10 +111,10 @@ export class NormalChatView {
 				vertical-align: -.32em;
 				width: 1.4em !important;
 			}
-			:host(.hide-photo) .photo {
-				display: none !important;
-			}
-			.normal-chat-photo-hidden .photo {
+			:host(.hide-photo) .photo,
+			:host(.hide-photo) [part="photo"],
+			.normal-chat-photo-hidden .photo,
+			.normal-chat-photo-hidden [part="photo"] {
 				display: none !important;
 			}
 			.normal-chat-image-placeholder {
@@ -136,19 +126,38 @@ export class NormalChatView {
 				padding: .05em .35em;
 				vertical-align: .05em;
 			}
-				.name {
-					color: #16802a;
-					font-weight: 750;
-					margin-right: .35em;
-				}
-				:host(.hide-name) .name,
-				.normal-chat-name-hidden .name {
-					display: none !important;
-				}
-				.body {
-					color: #111;
-					overflow: visible;
-				}
+			.name {
+				color: #16802a;
+				font-weight: 750;
+				margin-right: .35em;
+			}
+			:host(.hide-name) .name,
+			.normal-chat-name-hidden .name {
+				display: none !important;
+			}
+			.body {
+				color: #111;
+				overflow: visible;
+			}
+			:host(.hide-name) .normal .body {
+				color: #111;
+			}
+			:host(.hide-name) .member .body {
+				color: var(--yt-live-chat-sponsor-color, #16802a);
+				font-weight: 750;
+			}
+			:host(.hide-name) .moderator .body {
+				color: var(--yt-live-chat-moderator-color, #1a73e8);
+				font-weight: 750;
+			}
+			:host(.hide-name) .owner .body {
+				color: var(--yt-live-chat-owner-color, #b77900);
+				font-weight: 750;
+			}
+			:host(.hide-name) .verified .body {
+				color: var(--yt-live-chat-author-chip-verified-background-color, #606060);
+				font-weight: 750;
+			}
 			img:not(.photo),
 			svg {
 				height: auto !important;
@@ -236,6 +245,7 @@ export class NormalChatView {
 	setShowPhoto(showPhoto) {
 		this.showPhoto = showPhoto;
 		this.element.classList.toggle('hide-photo', !showPhoto);
+		this.refreshDisplaySettings();
 	}
 
 	/**
@@ -290,10 +300,31 @@ export class NormalChatView {
 	 * @param {HTMLElement} item
 	 */
 	applyDisplaySettings(item) {
-		const photoPart = NORMAL_CHAT_PHOTO_PARTS.find(([className]) => item.classList.contains(className))?.[1];
-		const showByFlusher = photoPart ? s.parts[photoPart]?.photo !== false : true;
 		item.classList.toggle('normal-chat-name-hidden', !this.showName);
-		item.classList.toggle('normal-chat-photo-hidden', !this.showPhoto || !showByFlusher);
+		item.classList.toggle('normal-chat-photo-hidden', !this.showPhoto);
+		this.applyAuthorPhotoVisibility(item, this.showPhoto);
+	}
+
+	/**
+	 * @param {HTMLElement} item
+	 * @param {boolean} visible
+	 */
+	applyAuthorPhotoVisibility(item, visible) {
+		const targets = new Set();
+		for (const photo of item.querySelectorAll('.photo, [part="photo"]')) {
+			const link = photo.closest('a');
+			targets.add(link && link.children.length === 1 ? link : photo);
+		}
+		for (const target of targets) {
+			if (!(target instanceof HTMLElement)) continue;
+			target.toggleAttribute('hidden', !visible);
+			target.setAttribute('aria-hidden', visible ? 'false' : 'true');
+			if (visible) {
+				target.style.removeProperty('display');
+			} else {
+				target.style.setProperty('display', 'none', 'important');
+			}
+		}
 	}
 
 	/**
