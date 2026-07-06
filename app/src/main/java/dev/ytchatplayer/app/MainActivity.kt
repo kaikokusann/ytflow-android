@@ -337,7 +337,7 @@ class MainActivity : Activity() {
             setPadding(dp(10), dp(4), dp(10), dp(4))
             setBackgroundColor(BLACK)
             ellipsize = TextUtils.TruncateAt.END
-            includeFontPadding = false
+            includeFontPadding = true
             maxLines = 1
             isSingleLine = true
             gravity = Gravity.CENTER_VERTICAL
@@ -376,7 +376,7 @@ class MainActivity : Activity() {
 
         addNavButton(toolbarIconButton("更新", R.drawable.ic_refresh) { activeSession().reload() })
         root.addView(navBar, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        root.addView(status, LinearLayout.LayoutParams.MATCH_PARENT, dp(24))
+        root.addView(status, LinearLayout.LayoutParams.MATCH_PARENT, dp(30))
 
         chatOnlyBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
