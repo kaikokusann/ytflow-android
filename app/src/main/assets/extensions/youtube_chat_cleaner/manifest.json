@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "YouTube Chat Cleaner",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Hide user names and avatars in YouTube live chat.",
   "browser_specific_settings": {
     "gecko": {

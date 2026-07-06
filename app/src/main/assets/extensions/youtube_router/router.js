@@ -5,6 +5,7 @@
   const APP_FLAG_PARAMS = {
     ytcc_app_ycc: 'ytcc-app-ycc-enabled',
     ytcc_app_lcf: 'ytcc-app-lcf-enabled',
+    ytcc_app_chat_only: 'ytcc-app-chat-only-enabled',
     ytcc_app_fsassist: FULLSCREEN_ASSIST_KEY
   };
   const CHAT_CLOSED_CLASS = 'ytcc-chat-closed';

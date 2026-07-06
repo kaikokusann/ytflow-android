@@ -84,6 +84,7 @@ class MainActivity : Activity() {
     private lateinit var notificationManager: NotificationManager
     private var youtubeChatCleanerEnabled = true
     private var liveChatFlusherEnabled = true
+    private var chatOnlyModeEnabled = false
     private var pausePlaybackOnPipClose = true
     private var suppressFailedPageStopUntil = 0L
     private var currentOsFps = 0
@@ -96,6 +97,7 @@ class MainActivity : Activity() {
         requestNotificationPermissionIfNeeded()
         youtubeChatCleanerEnabled = prefs.getBoolean(PREF_YCC_ENABLED, true)
         liveChatFlusherEnabled = prefs.getBoolean(PREF_LCF_ENABLED, true)
+        chatOnlyModeEnabled = prefs.getBoolean(PREF_CHAT_ONLY_MODE, false)
         pausePlaybackOnPipClose = prefs.getBoolean(PREF_PAUSE_ON_PIP_CLOSE, true)
         currentOsFps = prefs.getInt(PREF_FPS_LIMIT, 0)
         applyOsFps(currentOsFps, showToast = false)
@@ -434,6 +436,17 @@ class MainActivity : Activity() {
                 dialog.dismiss()
                 showExtensionPopup(lcfExtension, "options/options.html", "LiveChat Flusher", showSaveButton = true, reloadAfterSave = true)
             }
+        ))
+
+        root.addView(createSwitchOnlyRow(
+            title = "通常チャット専用モード",
+            isChecked = chatOnlyModeEnabled,
+            onCheckedChange = { checked ->
+                chatOnlyModeEnabled = checked
+                prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, checked).apply()
+                status.text = "通常チャット専用モード: ${if (checked) "ON" else "OFF"}"
+                loadUrl(withAppFlags(currentUrl()))
+            },
         ))
 
         root.addView(createSwitchOnlyRow(
@@ -1571,6 +1584,7 @@ class MainActivity : Activity() {
         return uri.buildUpon()
             .appendQueryParameter("ytcc_app_ycc", if (youtubeChatCleanerEnabled) "1" else "0")
             .appendQueryParameter("ytcc_app_lcf", if (liveChatFlusherEnabled) "1" else "0")
+            .appendQueryParameter("ytcc_app_chat_only", if (chatOnlyModeEnabled) "1" else "0")
             .build()
             .toString()
     }
@@ -1716,6 +1730,7 @@ class MainActivity : Activity() {
         private const val BLACK = Color.BLACK
         private const val PREF_YCC_ENABLED = "ycc_enabled"
         private const val PREF_LCF_ENABLED = "lcf_enabled"
+        private const val PREF_CHAT_ONLY_MODE = "chat_only_mode"
         private const val PREF_PAUSE_ON_PIP_CLOSE = "pause_on_pip_close"
         private const val PREF_LAST_VIDEO_URL = "last_video_url"
         private const val PREF_LAST_VIDEO_TIME = "last_video_time"

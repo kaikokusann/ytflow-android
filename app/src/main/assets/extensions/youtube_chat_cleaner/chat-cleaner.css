@@ -154,3 +154,39 @@
   min-width: 0 !important;
   width: 100% !important;
 }
+
+/* ---------- 通常チャット専用モード ---------- */
+/* YouTubeのDOMを大きく壊さず、通常チャットのiframeだけを前面に固定する。 */
+:root.ytcc-enabled.ytcc-chat-only,
+:root.ytcc-enabled.ytcc-chat-only body {
+  background: #000 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only #chat,
+:root.ytcc-enabled.ytcc-chat-only #chat-container,
+:root.ytcc-enabled.ytcc-chat-only ytd-live-chat-frame {
+  display: flex !important;
+  height: 100vh !important;
+  inset: 0 !important;
+  max-height: none !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  position: fixed !important;
+  width: 100vw !important;
+  z-index: 2147483647 !important;
+}
+
+:root.ytcc-enabled.ytcc-chat-only iframe#chatframe,
+:root.ytcc-enabled.ytcc-chat-only ytd-live-chat-frame iframe {
+  border: 0 !important;
+  display: block !important;
+  height: 100vh !important;
+  max-height: none !important;
+  max-width: none !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  width: 100vw !important;
+}

@@ -10,6 +10,8 @@ const DEFAULTS = {
 };
 
 const APP_ENABLED_KEY = 'ytcc-app-ycc-enabled';
+const CHAT_ONLY_KEY = 'ytcc-app-chat-only-enabled';
+const CHAT_ONLY_CLASS = 'ytcc-chat-only';
 
 const CLASS_MAP = {
   enabled: 'ytcc-enabled',
@@ -83,6 +85,7 @@ function applyConfig(config) {
       window.dispatchEvent(new Event('resize'));
     }, 100);
   }
+  applyChatOnlyMode();
 }
 
 function isAppEnabled() {
@@ -99,6 +102,52 @@ function clearClasses() {
     root.classList.remove(className);
   }
   root.classList.remove('ytcc-chat-visible');
+  root.classList.remove(CHAT_ONLY_CLASS);
+}
+
+function isChatOnlyEnabled() {
+  try {
+    return localStorage.getItem(CHAT_ONLY_KEY) === '1';
+  } catch (_error) {
+    return false;
+  }
+}
+
+function applyChatOnlyMode() {
+  const enabled = isAppEnabled() && isChatOnlyEnabled();
+  document.documentElement.classList.toggle(CHAT_ONLY_CLASS, enabled);
+  if (!enabled) return;
+  pauseLiveVideoOnly();
+  window.dispatchEvent(new Event('resize'));
+  setTimeout(() => {
+    pauseLiveVideoOnly();
+    window.dispatchEvent(new Event('resize'));
+  }, 500);
+}
+
+function pauseLiveVideoOnly() {
+  if (!isLiveVideo()) return;
+  const video = document.querySelector('#movie_player video') || document.querySelector('video');
+  try {
+    if (video && !video.paused) video.pause();
+  } catch (_error) {
+    // Ignore playback control failures.
+  }
+  const player = document.querySelector('#movie_player');
+  try {
+    if (player && typeof player.pauseVideo === 'function') player.pauseVideo();
+  } catch (_error) {
+    // Ignore playback control failures.
+  }
+}
+
+function isLiveVideo() {
+  const player = document.querySelector('#movie_player');
+  if (player && String(player.className || '').includes('ytp-livebadge-color')) return true;
+  if (document.querySelector('.ytp-live-badge-is-livehead')) return true;
+  if (document.querySelector('.ytp-time-display.ytp-live')) return true;
+  const video = document.querySelector('video');
+  return Boolean(video && video.duration === Infinity);
 }
 
 function normalizeChatWidth(value) {
