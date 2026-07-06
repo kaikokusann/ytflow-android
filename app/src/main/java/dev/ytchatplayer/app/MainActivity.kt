@@ -99,7 +99,8 @@ class MainActivity : Activity() {
         requestNotificationPermissionIfNeeded()
         youtubeChatCleanerEnabled = prefs.getBoolean(PREF_YCC_ENABLED, true)
         liveChatFlusherEnabled = prefs.getBoolean(PREF_LCF_ENABLED, true)
-        chatOnlyModeEnabled = prefs.getBoolean(PREF_CHAT_ONLY_MODE, false)
+        chatOnlyModeEnabled = false
+        prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, false).apply()
         pausePlaybackOnPipClose = prefs.getBoolean(PREF_PAUSE_ON_PIP_CLOSE, true)
         currentOsFps = prefs.getInt(PREF_FPS_LIMIT, 0)
         applyEffectiveOsFps(showToast = false)
@@ -471,6 +472,7 @@ class MainActivity : Activity() {
         root.addView(createSwitchOnlyRow(
             title = "通常チャット専用モード",
             isChecked = chatOnlyModeEnabled,
+            isEnabled = activeSurface == BrowserSurface.VIDEO,
             onCheckedChange = { checked -> setChatOnlyMode(checked) },
         ))
 
@@ -529,16 +531,19 @@ class MainActivity : Activity() {
     private fun createSwitchOnlyRow(
         title: String,
         isChecked: Boolean,
+        isEnabled: Boolean = true,
         onCheckedChange: (Boolean) -> Unit,
     ): LinearLayout {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(12), 0, dp(12))
+            alpha = if (isEnabled) 1f else 0.45f
         }
         val switch = Switch(this).apply {
             text = title
             textSize = 16f
+            this.isEnabled = isEnabled
             this.isChecked = isChecked
             setOnCheckedChangeListener { _, checked -> onCheckedChange(checked) }
         }
@@ -1188,6 +1193,9 @@ class MainActivity : Activity() {
         if (activeSurface == surface) return
         
         val oldSession = activeSession()
+        if (surface == BrowserSurface.MOBILE && chatOnlyModeEnabled) {
+            setChatOnlyMode(false)
+        }
         if (activeSurface == BrowserSurface.VIDEO && surface == BrowserSurface.MOBILE) {
             pauseVideoPlayback()
             hideMediaNotification()
@@ -1653,6 +1661,14 @@ class MainActivity : Activity() {
     }
 
     private fun setChatOnlyMode(enabled: Boolean) {
+        if (enabled && activeSurface != BrowserSurface.VIDEO) {
+            chatOnlyModeEnabled = false
+            prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, false).apply()
+            status.text = "通常チャット専用モードは動画画面でオンにしてください"
+            applyEffectiveOsFps(showToast = false)
+            updateChromeForPictureInPicture()
+            return
+        }
         chatOnlyModeEnabled = enabled
         prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, enabled).apply()
         status.text = "通常チャット専用モード: ${if (enabled) "ON" else "OFF"}"
