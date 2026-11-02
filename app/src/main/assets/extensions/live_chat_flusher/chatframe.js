@@ -1,73 +1,67 @@
-// @ts-expect-error
-self.browser ??= chrome;
+(function () {
+	'use strict';
+	// @ts-expect-error: Polyfill browser API for Chrome 147 or older environments
+	globalThis.browser ??= chrome;
+	if (localStorage.getItem('ytcc-app-lcf-enabled') === '0') return;
+	const appParams = new URLSearchParams(location.hash.replace(/^#\??/, ''));
+	if (appParams.get('ytcc_app_chat_only') === '1' || new URLSearchParams(location.search).get('ytcc_app_chat_only') === '1') return;
 
-const isLive = location.pathname === '/live_chat';
-const modeName = isLive ? 'mode_livestream' : 'mode_replay';
+	const MAX_ATTEMPTS = 30;
 
-Promise.all([
-	import(browser.runtime.getURL('./modules/store.mjs')).then((/** @type {typeof import('./modules/store.mjs')} */ { store }) => store.load()),
-	import(browser.runtime.getURL('./modules/logging.mjs')).then((/** @type {typeof import('./modules/logging.mjs')} */ { logger }) => logger),
-]).then(([store, logger]) => {
-	const mode = store.others[modeName] ?? 1;
-	logger.info('Loaded chat frame script:', `${modeName} =`, mode);
-	document.addEventListener('yt-action', onAction, { passive: true });
-	if (isNormalChatPageMode()) {
-		import(browser.runtime.getURL('./modules/normal_chat_page.mjs'))
-			.then(module => module.initializeNormalChatPage())
-			.catch(error => logger.warn('Failed to start normal chat page mode:', error));
-	}
-	if (mode) return;
-	const ev = new CustomEvent('ytlcf-start');
-	const timer = setInterval(() => {
-		const popupDocument = getPopupDocument();
-		const layer = top?.document.getElementById('yt-lcf-layer') || popupDocument?.getElementById('yt-lcf-layer') || top?.document.getElementById('yt-lcf-pip-marker');
-		if (layer) {
-			top?.document.dispatchEvent(ev);
-			popupDocument?.dispatchEvent(new CustomEvent('ytlcf-start'));
-			logger.info('Initialized layer found, dispatched start event.');
-			clearInterval(timer);
-		} else {
-			logger.debug('No initialized layer found, waiting...');
-		}
-	}, 1000);
-});
+	const isLive = location.pathname === '/live_chat';
+	const modeName = isLive ? 'mode_livestream' : 'mode_replay';
 
-/**
- * @param {CustomEvent} e
- */
-function onAction(e) {
-	if (e.detail?.actionName === 'yt-live-chat-actions') {
-		const actions = e.detail?.args?.at(0);
-		if (!actions) return;
-		const ev = new CustomEvent('ytlcf-action', { detail: actions });
-		top?.document.dispatchEvent(ev);
-		getPopupDocument()?.dispatchEvent(new CustomEvent('ytlcf-action', { detail: actions }));
-	}
-}
+	/** @type {Promise<typeof import('./modules/store.mjs')>} */
+	const importingStore = import(browser.runtime.getURL('./modules/store.mjs'));
+	/** @type {Promise<typeof import('./modules/logging.mjs')>} */
+	const importingLogging = import(browser.runtime.getURL('./modules/logging.mjs'));
 
-function getPopupDocument() {
-	try {
-		const win = top?.__ytlcfPopupWindow;
-		return win && !win.closed ? win.document : null;
-	} catch (_err) {
-		return null;
-	}
-}
+	Promise.all([
+		importingLogging.then(({ logger }) => logger),
+		importingStore.then(({ store }) => store.load()),
+	]).then(async ([logger, store]) => {
+		const mode = store.others[modeName] ?? 1;
+		logger.info('Loaded chat frame script:', `${modeName} =`, mode);
+		if (mode) return;
 
-function isNormalChatPageMode() {
-	try {
-		return getAppParams().get('ytcc_app_chat_only') === '1';
-	} catch (_error) {
-		return false;
-	}
-}
-
-function getAppParams() {
-	const url = new URL(location.href);
-	const params = new URLSearchParams(url.search);
-	const hashParams = new URLSearchParams(url.hash.replace(/^#\??/, ''));
-	for (const [key, value] of hashParams) {
-		if (!params.has(key)) params.set(key, value);
-	}
-	return params;
-}
+		let attempts = 0;
+		return (async function tryFindLayer() {
+			const layer = top?.document.getElementById('yt-lcf-layer');
+			if (layer) {
+				const nonce = await browser.runtime.sendMessage({ fire: 'getNonce' });
+				if (typeof nonce !== 'string') {
+					const { name = 'NotFoundError', message } = nonce?.error ?? {};
+					logger.error(new DOMException(message, name));
+					return;
+				}
+				const startEvent = new CustomEvent(`ytlcf-start:${nonce}`, { cancelable: true });
+				// The layer can exist before the main script is ready to receive events.
+				if (top?.document.dispatchEvent(startEvent) === false) {
+					logger.info('Main script acknowledged start event.');
+					document.addEventListener('yt-action', e => {
+						if (e.detail?.actionName !== 'yt-live-chat-actions') return;
+						const actions = e.detail?.args?.at(0);
+						if (!actions) return;
+						const ev = new CustomEvent(`ytlcf-action:${nonce}`, { detail: actions });
+						top?.document.dispatchEvent(ev);
+					});
+					return;
+				}
+			}
+			if (attempts++ < MAX_ATTEMPTS) {
+				logger.debug('Waiting for the main script to acknowledge the start event...', attempts, `of ${MAX_ATTEMPTS}`);
+				setTimeout(tryFindLayer, 1000);
+			} else {
+				logger.error(`Failed to start chat forwarding after ${MAX_ATTEMPTS} retries.`);
+			}
+		})();
+	}).catch(err => {
+		console.error(
+			'[%cYTLCF%c...<%c]',
+			'font-family:sans-serif;font-weight:700;padding-right:.33em',
+			'border-radius:.33em;background-color:red;color:white;font-family:sans-serif;font-weight:700;padding:0 .33em',
+			'',
+			'Failed to load the chat frame script.\nCaused by:', err
+		);
+	});
+})();

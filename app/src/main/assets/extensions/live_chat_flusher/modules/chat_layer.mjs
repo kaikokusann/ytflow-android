@@ -1,8 +1,10 @@
 import { logger } from './logging.mjs';
-import { store as s } from './store.mjs';
+import { store as s, DEFAULT_LINE_HEIGHT } from './store.mjs';
+import { isAdShowing } from './dom_utils.mjs';
+/** @import { LiveChatController } from './chat_controller.mjs' */
 
 export class LiveChatLayer {
-	/** @type {import("./chat_controller.mjs").LiveChatController} */
+	/** @type {LiveChatController} */
 	#controller;
 
 	/** @type {number} */
@@ -28,7 +30,7 @@ export class LiveChatLayer {
 
 	/**
 	 * Creates new layer.
-	 * @param {import("./chat_controller.mjs").LiveChatController} controller controller
+	 * @param {LiveChatController} controller controller
 	 * @param {HTMLDivElement | undefined} div container element
 	 */
 	constructor(controller, div = undefined) {
@@ -47,7 +49,11 @@ export class LiveChatLayer {
 
 			const video = this.element.parentElement?.querySelector('video');
 			if (video) {
-				this.element.style.maskPosition = `0px 0px, ${video.style.left} ${video.style.top}`;
+				const maskPos = {
+					x: `calc(${video.style.left || '0px'} - ${this.element.style.left || '0px'})`,
+					y: `calc(${video.style.top || '0px'} - ${this.element.style.top || '0px'})`,
+				};
+				this.element.style.maskPosition = `0px 0px, ${maskPos.x} ${maskPos.y}`;
 				this.element.style.maskSize = `100% 100%, ${video.style.width} ${video.style.height}`;
 			}
 		});
@@ -56,7 +62,7 @@ export class LiveChatLayer {
 		const link = document.createElement('link');
 		link.rel = 'stylesheet';
 		link.href = browser.runtime.getURL('../styles/layer.css');
-		const styles = ['customcss', 'yourcss', 'userdefinedcss'].map(id => {
+		const styles = ['customcss', 'userdefinedcss'].map(id => {
 			const element = document.createElement('style');
 			element.id = id;
 			return element;
@@ -64,13 +70,32 @@ export class LiveChatLayer {
 		this.root.append(link, ...styles);
 		this.#initialElemCount = this.root.childElementCount;
 
-		const mutationObserver = new MutationObserver(() => {
+		/** @type {(records: MutationRecord[], observer?: MutationObserver) => void} */
+		const callbackOnRemoved = (records, observer) => {
+			for (const r of records) {
+				for (const removed of r.removedNodes) {
+					if (removed instanceof HTMLElement && removed.parentNode !== this.root) {
+						this.#controller.layoutCache?.delete(removed);
+					}
+				}
+			}
 			const over = this.root.childElementCount - (this.limit || Infinity);
 			let i = this.#initialElemCount;
-			while (i++ < over) {
-				this.root.children[this.#initialElemCount]?.remove();
+			if (observer && i < over) {
+				// Suppress re-entrancy while evicting so each removal is handled once here.
+				const mutations = observer.takeRecords();
+				observer.disconnect();
+				while (i++ < over) {
+					const oldest = this.root.children[this.#initialElemCount];
+					if (!(oldest instanceof HTMLElement)) break;
+					this.#controller.layoutCache?.delete(oldest);
+					oldest.remove();
+				}
+				callbackOnRemoved(mutations);
+				observer.observe(this.root, { childList: true });
 			}
-		});
+		};
+		const mutationObserver = new MutationObserver(callbackOnRemoved);
 		mutationObserver.observe(this.root, { childList: true });
 		this.clear();
 	}
@@ -84,6 +109,7 @@ export class LiveChatLayer {
 	 * @returns {LiveChatLayer} layer
 	 */
 	clear() {
+		this.#controller.layoutCache?.clear();
 		const styles = this.root.querySelectorAll('link,style');
 		this.root.replaceChildren(...styles);
 		return this;
@@ -131,9 +157,9 @@ export class LiveChatLayer {
 	resetFontSize(numOfLines = s.others.number_of_lines) {
 		const rect = this.element.getBoundingClientRect();
 		if (!rect.height) return;
-		const lh = Number.parseFloat(s.styles.line_height) || 1.4;
+		const lhf = Number.parseFloat(s.styles.line_height) || DEFAULT_LINE_HEIGHT;
 		if (numOfLines > 0) {
-			const sizeByLines = (rect.height / lh / numOfLines) | 0;
+			const sizeByLines = (rect.height / lhf / numOfLines) | 0;
 			this.element.style.setProperty('--yt-lcf-font-size', [
 				`${sizeByLines}px`,
 				`max(${s.styles.font_size}, ${sizeByLines}px)`,
@@ -142,7 +168,7 @@ export class LiveChatLayer {
 			this.#controller.layoutCache.resize(numOfLines);
 		} else {
 			const fs = Number.parseFloat(s.styles.font_size);
-			const linesBySize = (rect.height / lh / fs) | 0;
+			const linesBySize = (rect.height / lhf / fs) | 0;
 			this.element.style.setProperty('--yt-lcf-font-size', s.styles.font_size);
 			this.#controller.layoutCache.resize(linesBySize);
 		}
@@ -168,70 +194,75 @@ export class LiveChatLayer {
 		this.element.style.left = `${x}px`;
 		this.element.style.top = `${y}px`;
 	}
-}
 
-/**
- * @typedef MLEngineResult
- * @prop {object} metrics
- * @prop {number} metrics.decodingTime
- * @prop {number} metrics.inferenceTime
- * @prop {number} metrics.inputTokens
- * @prop {number} metrics.outputTokens
- * @prop {number} metrics.preprocessingTime
- * @prop {Array<{ name: string, when: number }>} metrics.runTimestamps
- * @prop {number} metrics.timePerOutputToken
- * @prop {?number} metrics.timeToFirstToken
- * @prop {number} metrics.tokenizingTime
- * @prop {number} metrics.tokensPerSecond
- * @prop { { cpuTime: number, memory: number } } resourcesAfter
- * @prop { { cpuTime: number, memory: number } } resourcesBefore
- */
+	/**
+	 * Autofits the layer to the video size.
+	 * @param {boolean} fit whether autofits to the video size
+	 */
+	autofit(fit) {
+		const ls = this.element.style;
+		const props = /** @type {const} */ (['left', 'top', 'width', 'height']);
+		if (fit) {
+			const vs = this.element.parentElement?.querySelector('video')?.style;
+			if (vs) for (const p of props) ls[p] = vs[p];
+		} else {
+			const styleMap = new Map(s.styles.layer_css.split(/\s*;\s*/g).map(kv => {
+				const [k = '', v = ''] = kv.split(/\s*:\s*/, 2);
+				return [k.toLowerCase(), v];
+			}));
+			for (const p of props) ls[p] = styleMap.get(p) || '';
+		}
+	}
+}
 
 /**
  * @typedef SegmentInfo
  * @prop {?string} label
  * @prop {?number} score
  * @prop {object} mask
- * @prop {Uint8ClampedArray} mask.data
+ * @prop {TypedArray} mask.data
  * @prop {number} mask.width
  * @prop {number} mask.height
- * @prop {number} mask.channel
+ * @prop {number} mask.channels
  */
 
 /**
  * @typedef {(result: SegmentInfo[] | undefined) => void} SegmentationCallback
  */
 
-export class VideoSegmentationExecutor {
+export class VideoFrameSegmenter {
 	/** @type {[number, number]} */
 	static TARGET_SIZE = [256, 144];
+	static ERROR_ATTEMPTS = 10;
 
 	/** @type {SegmentationCallback} */ #callback;
-	/** @type {AbortController} */ #abortController;
 	/** @type {number} */ #reqId = 0;
+	/** @type {number} */ #errorCount = 0;
+	/** @type {boolean} */ #disconnected = true;
 
 	/**
 	 * @param {SegmentationCallback} callback
 	 */
 	constructor(callback) {
 		this.#callback = callback;
-		this.#abortController = new AbortController();
-		this.offscreen = new OffscreenCanvas(...VideoSegmentationExecutor.TARGET_SIZE);
-		this.context = this.offscreen.getContext('2d');
+		this.offscreen = new OffscreenCanvas(...VideoFrameSegmenter.TARGET_SIZE);
+		this.context = this.offscreen.getContext('bitmaprenderer');
 	}
 
 	/**
 	 * @param {HTMLVideoElement} video
 	 */
 	async #sendFrame(video) {
-		const [width, height] = VideoSegmentationExecutor.TARGET_SIZE;
-		try {
-			this.context?.drawImage(video, 0, 0, width, height);
-			const mask = await this.offscreen.convertToBlob({ type: 'image/webp', quality: .3 });
-			return await browser.runtime.sendMessage({ mask });
-		} catch (cause) {
-			logger.error('Failed to send a video frame to the person detector.\nCaused by:', cause);
+		const [resizeWidth, resizeHeight] = VideoFrameSegmenter.TARGET_SIZE;
+		const bitmap = await createImageBitmap(video, { resizeWidth, resizeHeight });
+		this.context?.transferFromImageBitmap(bitmap);
+		const mask = await this.offscreen.convertToBlob({ type: 'image/webp', quality: .3 });
+		const result = await browser.runtime.sendMessage({ mask });
+		if (result && typeof result === 'object' && 'error' in result) {
+			const { name, message } = result.error;
+			throw new DOMException(message, name);
 		}
+		return result;
 	}
 
 	/**
@@ -239,39 +270,63 @@ export class VideoSegmentationExecutor {
 	 * @param {LiveChatLayer} layer
 	 */
 	observe(video, layer) {
+		this.#errorCount = 0;
 		let inProgress = false;
+		let lastTime = 0;
+		/** @type {(err: unknown) => boolean} */
+		const isFatalError = err => {
+			const patterns = [/due to previous failure/];
+			if (Error.isError(err)) {
+				const names = ['NotAllowedError', 'NotSupportedError', 'OperationError', 'SecurityError', 'TypeError'];
+				return names.includes(err.name) || patterns.some(pat => pat.test(err.message));
+			} else {
+				return patterns.some(pat => pat.test(`${err}`));
+			}
+		};
 		const canProcess = () => {
+			const player = /** @type {?HTMLElement} */ (video.closest('#movie_player'));
 			return (
 				!inProgress
 				&& document.visibilityState === 'visible'
 				&& layer.count > 0
 				&& !video.paused
 				&& !video.ended
-				&& !video.closest('#movie_player')?.classList.contains('ad-showing')
+				&& (player ? !isAdShowing(player) : false)
 			);
 		};
 		/** @type {VideoFrameRequestCallback} */
-		const frame = async (_now, _metadata) => {
-			if (this.#abortController.signal.aborted) {
-				this.#abortController = new AbortController();
-				return;
-			} else if (canProcess()) {
+		const frame = (now, _metadata) => {
+			if (this.#disconnected) return;
+			if (canProcess() && now > lastTime + 33) {
 				inProgress = true;
-				const result = await this.#sendFrame(video);
-				// @ts-expect-error
-				this.#callback(result);
-				inProgress = false;
+				lastTime = now;
+				this.#sendFrame(video).then(result => {
+					if (this.#disconnected) return;
+					this.#callback(result);
+					this.#errorCount = 0;
+				}).catch(reason => {
+					logger.warn(reason);
+					if (isFatalError(reason) || this.#errorCount++ >= VideoFrameSegmenter.ERROR_ATTEMPTS) {
+						this.disconnect(video);
+					}
+				}).finally(() => {
+					inProgress = false;
+				});
 			}
 			this.#reqId = video.requestVideoFrameCallback(frame);
 		};
+		this.#disconnected = false;
 		this.#reqId = video.requestVideoFrameCallback(frame);
+		logger.info('Person detection started.');
 	}
 
 	/**
 	 * @param {HTMLVideoElement} [video]
 	 */
 	disconnect(video = undefined) {
-		this.#abortController.abort();
+		if (this.#disconnected) return;
+		this.#disconnected = true;
 		if (this.#reqId) video?.cancelVideoFrameCallback(this.#reqId);
+		logger.info('Person detection stopped.');
 	}
 }

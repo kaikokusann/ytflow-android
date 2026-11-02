@@ -1,25 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:windowNoTitle">true</item>
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#FF0033</item>
-        <item name="android:navigationBarColor">#0F0F0F</item>
-        <item name="android:statusBarColor">#0F0F0F</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="colorPrimary">@color/settings_accent</item>
+        <item name="colorOnPrimary">@color/settings_on_accent</item>
+        <item name="colorPrimaryContainer">@color/settings_accent_container</item>
+        <item name="colorOnPrimaryContainer">@color/settings_on_accent_container</item>
+        <item name="colorSecondary">@color/settings_accent</item>
+        <item name="colorOnSecondary">@color/settings_on_accent</item>
+        <item name="colorSecondaryContainer">@color/settings_accent_container</item>
+        <item name="colorOnSecondaryContainer">@color/settings_on_accent_container</item>
+        <item name="colorSurface">@color/settings_sheet_background</item>
+        <item name="colorSurfaceContainer">@color/settings_card_background</item>
+        <item name="colorOnSurface">@color/settings_text_primary</item>
+        <item name="colorOnSurfaceVariant">@color/settings_text_secondary</item>
+        <item name="colorOutline">@color/settings_card_stroke</item>
+        <item name="colorOutlineVariant">@color/settings_card_stroke</item>
+        <item name="android:windowBackground">@color/settings_sheet_background</item>
+        <item name="android:navigationBarColor">@color/settings_sheet_background</item>
+        <item name="android:statusBarColor">@color/settings_sheet_background</item>
         <item name="android:windowSplashScreenBackground">#0F0F0F</item>
         <item name="android:windowSplashScreenIconBackgroundColor">#0F0F0F</item>
         <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
     </style>
 
     <style name="YTFlowSettingsBottomSheetDialog" parent="Theme.Material3.DayNight.BottomSheetDialog">
+        <item name="enableEdgeToEdge">true</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">?attr/isLightTheme</item>
+        <item name="android:windowLightNavigationBar">?attr/isLightTheme</item>
+        <item name="elevationOverlayEnabled">false</item>
         <item name="colorPrimary">@color/settings_accent</item>
+        <item name="colorOnPrimary">@color/settings_on_accent</item>
+        <item name="colorPrimaryContainer">@color/settings_accent_container</item>
+        <item name="colorOnPrimaryContainer">@color/settings_on_accent_container</item>
         <item name="colorSecondary">@color/settings_accent</item>
+        <item name="colorOnSecondary">@color/settings_on_accent</item>
+        <item name="colorSecondaryContainer">@color/settings_accent_container</item>
+        <item name="colorOnSecondaryContainer">@color/settings_on_accent_container</item>
         <item name="colorSurface">@color/settings_sheet_background</item>
+        <item name="colorSurfaceContainerLow">@color/settings_sheet_background</item>
         <item name="colorOnSurface">@color/settings_text_primary</item>
         <item name="colorOnSurfaceVariant">@color/settings_text_secondary</item>
+        <item name="colorOutline">@color/settings_card_stroke</item>
+        <item name="colorOutlineVariant">@color/settings_card_stroke</item>
         <item name="android:fontFamily">sans</item>
         <item name="bottomSheetStyle">@style/YTFlowSettingsBottomSheet</item>
+    </style>
+
+    <style name="YTFlowExtensionSettingsDialog" parent="Theme.Material3.DayNight.Dialog">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="colorPrimary">@color/settings_accent</item>
+        <item name="colorSurface">@color/settings_sheet_background</item>
+        <item name="colorOnSurface">@color/settings_text_primary</item>
+        <item name="android:windowBackground">?attr/colorSurface</item>
     </style>
 
     <style name="YTFlowSettingsBottomSheet" parent="Widget.Material3.BottomSheet.Modal">
@@ -29,7 +65,9 @@
 
     <style name="YTFlowSettingsBottomSheetShape">
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSizeTopLeft">28dp</item>
-        <item name="cornerSizeTopRight">28dp</item>
+        <item name="cornerSizeTopLeft">@dimen/settings_corner_radius</item>
+        <item name="cornerSizeTopRight">@dimen/settings_corner_radius</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
     </style>
 </resources>

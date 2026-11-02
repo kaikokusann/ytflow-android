@@ -1,527 +1,611 @@
 {
-   "Channel_ID": {
-      "message": "Channel ID\n(Each line)"
-   },
-   "aboutAddon": {
-      "message": "About Extension"
-   },
-   "add": {
-      "message": "Add"
-   },
-   "addUserStyle": {
-      "message": "Add per-user styling"
-   },
-   "addableByBrowserLanguageSettings": {
-      "message": "You can add more options \nvia browser's language settings."
-   },
-   "animationDuration": {
-      "message": "Animation Duration"
-   },
-   "autostart": {
-      "message": "Automatically open chat frame when watching replays"
-   },
-   "backgroundOpacity": {
-      "message": "Background Opacity"
-   },
-   "byTypeTab": {
-      "message": "By Type"
-   },
-   "cancel": {
-      "message": "Cancel"
-   },
-   "close": {
-      "message": "close"
-   },
-   "common": {
-      "message": "Common"
-   },
-   "commonSettings": {
-      "message": "Common Settings"
-   },
-   "configFile": {
-      "message": "Config File"
-   },
-   "confirm": {
-      "message": "Confirm"
-   },
-   "containerLimit": {
-      "message": "Container Disp. Limit"
-   },
-   "delete": {
-      "message": "Delete"
-   },
-   "density": {
-      "message": "Density"
-   },
-   "density_dense": {
-      "message": "Dense"
-   },
-   "density_random": {
-      "message": "Random"
-   },
-   "description_chatframe_dependent_1": {
-      "message": "Works only while the chat frame is open."
-   },
-   "description_chatframe_independent_1": {
-      "message": "Works even when the chat frame is closed."
-   },
-   "description_chatframe_independent_2": {
-      "message": "The time-shift function is available for replays; you can adjust the timing of chat flowing."
-   },
-   "description_chatframe_independent_3": {
-      "message": "The operation may be unstable, especially for long videos."
-   },
-   "direction": {
-      "message": "Direction"
-   },
-   "direction_bottom_to_top": {
-      "message": "Bottom to top"
-   },
-   "direction_left_to_right": {
-      "message": "Left to right"
-   },
-   "disabled": {
-      "message": "Disable"
-   },
-   "displayLimit": {
-      "message": "Flow Disp. Limit"
-   },
-   "displaySettings": {
-      "message": "Display Settings"
-   },
-   "displayStyle": {
-      "message": "Display style"
-   },
-   "displayTab": {
-      "message": "Basic"
-   },
-   "display_authorName": {
-      "message": "Name"
-   },
-   "display_chatMessage": {
-      "message": "Message"
-   },
-   "display_customColor": {
-      "message": "Custom Color"
-   },
-   "display_membershipMessage": {
-      "message": "Message"
-   },
-   "display_milestoneMonths": {
-      "message": "mths"
-   },
-   "display_purchaseAmount": {
-      "message": "$0"
-   },
-   "display_sticker": {
-      "message": "Sticker"
-   },
-   "display_stickerSize": {
-      "message": "Size"
-   },
-   "down": {
-      "message": "Down"
-   },
-   "emojiExpression": {
-      "message": "Emoji Expression"
-   },
-   "emojiExpression_0": {
-      "message": "Hide all"
-   },
-   "emojiExpression_1": {
-      "message": "Show all"
-   },
-   "emojiExpression_2": {
-      "message": "Replace with labels"
-   },
-   "emojiExpression_3": {
-      "message": "Replace with shortcuts"
-   },
-   "enabled": {
-      "message": "Enable"
-   },
-   "enabled_always": {
-      "message": "Enable Always"
-   },
-   "enabled_gpu": {
-      "message": "Enable (GPU)"
-   },
-   "enabled_onDependentMode": {
-      "message": "Enable on ChatFrame Dependent Mode"
-   },
-   "enabled_wasm": {
-      "message": "Enable (WASM)"
-   },
-   "exception": {
-      "message": "except"
-   },
-   "export": {
-      "message": "Export"
-   },
-   "fontFactor": {
-      "message": "Font size factor"
-   },
-   "fontFamily_fontWeight": {
-      "message": "Font Family/Weight"
-   },
-   "fontFamily_select_from_local": {
-      "message": "Select from local fonts"
-   },
-   "fontSize": {
-      "message": "Font Size"
-   },
-   "font_helper_select": {
-      "message": "Select font family..."
-   },
-   "hotkey": {
-      "message": "Hotkeys (Keyboard Shortcuts)"
-   },
-   "hotkey_alt": {
-      "message": "with Alt/Option key"
-   },
-   "hotkey_layer": {
-      "message": "Chat Layer"
-   },
-   "hotkey_panel": {
-      "message": "Config Panel"
-   },
-   "hotkey_pip": {
-      "message": "PiP"
-   },
-   "pipWindowMode": {
-      "message": "PiP/Popup window mode"
-   },
-   "pipWindowMode_pip": {
-      "message": "Original PiP w/ chat"
-   },
-   "pipWindowMode_popup": {
-      "message": "Popup w/ chat"
-   },
-   "import": {
-      "message": "Import"
-   },
-   "init": {
-      "message": "Reset"
-   },
-   "label": {
-      "message": "Label"
-   },
-   "layerCSS": {
-      "message": "Layer CSS"
-   },
-   "layerOpacity": {
-      "message": "Chat Layer Opacity"
-   },
-   "lineHeight": {
-      "message": "Line Height"
-   },
-   "lines": {
-      "message": "lines"
-   },
-   "livestream": {
-      "message": "Live"
-   },
-   "loadingMode": {
-      "message": "Chat Loading Mode"
-   },
-   "manifestDescription": {
-      "message": "Provides bullet chatting (danmaku) on YouTube Live, like niconico or bilibili."
-   },
-   "manifestName": {
-      "message": "YouTube LiveChat Flusher (Danmaku Chat)"
-   },
-   "maxWidth_wordWrap": {
-      "message": "Max Width/Wrap"
-   },
-   "member": {
-      "message": "Member"
-   },
-   "membership": {
-      "message": "Membership"
-   },
-   "menu_copyAuthorId": {
-      "message": "Copy the user ID of this message"
-   },
-   "menu_hideAuthor": {
-      "message": "Hide all messages by this user"
-   },
-   "menu_moveMessage": {
-      "message": "Move this message"
-   },
-   "menu_resumeAnimation": {
-      "message": "Resume the animation"
-   },
-   "message_pause": {
-      "message": "Animation pausing by right-clicking a message"
-   },
-   "milestone": {
-      "message": "Milestone"
-   },
-   "mode_option_chatframe_dependent": {
-      "message": "ChatFrame Dependent Mode"
-   },
-   "mode_option_chatframe_independent": {
-      "message": "ChatFrame Independent Mode"
-   },
-   "moderator": {
-      "message": "Moderator"
-   },
-   "mutedWordsGrammer": {
-      "message": "Grammar"
-   },
-   "mutedWordsMode": {
-      "message": "Mode"
-   },
-   "mutedWordsMode_0": {
-      "message": "Off"
-   },
-   "mutedWordsMode_1": {
-      "message": "Hide messages containing the keyword"
-   },
-   "mutedWordsMode_2": {
-      "message": "Hide/replace the keyword"
-   },
-   "mutedWordsMode_3": {
-      "message": "Replace the character"
-   },
-   "mutedWordsReplacement": {
-      "message": "Repl. Word/Char"
-   },
-   "mutedWordsTab": {
-      "message": "Words Filter"
-   },
-   "normal": {
-      "message": "Normal"
-   },
-   "notification_title_onInstall": {
-      "message": "Thank you for installing!\nClick to refresh YouTube tabs."
-   },
-   "notification_title_onUpdate": {
-      "message": "Updated to version $1.\nClick to refresh YouTube tabs."
-   },
-   "opacity_0": {
-      "message": "0"
-   },
-   "opacity_1": {
-      "message": "1"
-   },
-   "otherConfig": {
-      "message": "Open Other Options"
-   },
-   "othersTab": {
-      "message": "Others"
-   },
-   "overlapping": {
-      "message": "Overlapping"
-   },
-   "overlapping_hidden": {
-      "message": "Hide"
-   },
-   "overlapping_translate": {
-      "message": "Shift"
-   },
-   "overlapping_transparent": {
-      "message": "Make transparent"
-   },
-   "owner": {
-      "message": "Owner"
-   },
-   "person_detection": {
-      "message": "Person Detection (alpha-release)"
-   },
-   "pip_marker": {
-      "message": "Now playing in picture-in-picture mode"
-   },
-   "placeholder_channelId": {
-      "message": "24 letters beginning with &quot;UC&quot;"
-   },
-   "placeholder_customCSS": {
-      "message": "Custom CSS"
-   },
-   "placeholder_mutedWordsList": {
-      "message": "Multiple keywords can be prohibited in a new line."
-   },
-   "placeholder_mutedWordsReplacement": {
-      "message": "Empty means hidden"
-   },
-   "placeholder_userStyleTextArea": {
-      "message": "/* Preview of CSS is displayed in this area. */"
-   },
-   "prefixOriginalLanguage": {
-      "message": "Prefix original language"
-   },
-   "regexp": {
-      "message": "Use regular expression"
-   },
-   "replay": {
-      "message": "Replay"
-   },
-   "resizeLayer": {
-      "message": "Resize layer"
-   },
-   "save": {
-      "message": "Save"
-   },
-   "show_username": {
-      "message": "Show usernames instead of handles"
-   },
-   "simultaneousMessage": {
-      "message": "Simultaneous Msg."
-   },
-   "simultaneousMessage_0": {
-      "message": "Flush all messages"
-   },
-   "simultaneousMessage_1": {
-      "message": "Flush only first message per load"
-   },
-   "simultaneousMessage_2": {
-      "message": "Merge same messages"
-   },
-   "simultaneousMessage_3": {
-      "message": "Merge same messages including last one"
-   },
-   "sticker": {
-      "message": "Super Sticker"
-   },
-   "strokeBlur": {
-      "message": "Blur"
-   },
-   "strokeColor": {
-      "message": "Color"
-   },
-   "strokeOffset": {
-      "message": "Offset"
-   },
-   "strokeStyle": {
-      "message": "Stroke Style"
-   },
-   "suffixOriginalMessage": {
-      "message": "Suffix original message"
-   },
-   "superchat": {
-      "message": "Super Chat"
-   },
-   "targetLanguage": {
-      "message": "Target language"
-   },
-   "timeshift": {
-      "message": "Time-shift"
-   },
-   "timeshift_note": {
-      "message": "(Only available in replay)"
-   },
-   "tooltip_authorName": {
-      "message": "Author Name"
-   },
-   "tooltip_authorPhoto": {
-      "message": "Author Photo"
-   },
-   "tooltip_chatMessage": {
-      "message": "Chat Message"
-   },
-   "tooltip_customColor": {
-      "message": "Custom Color"
-   },
-   "tooltip_membershipMessage": {
-      "message": "New/Upgraded Membership Message"
-   },
-   "tooltip_milestoneMonths": {
-      "message": "Milestone Months"
-   },
-   "tooltip_mutedWordsReplacement": {
-      "message": "Only the first character is used for replacement"
-   },
-   "tooltip_purchaseAmount": {
-      "message": "Purchase Amount"
-   },
-   "tooltip_sticker": {
-      "message": "Sticker"
-   },
-   "tooltip_stickerSize": {
-      "message": "Sticker size"
-   },
-   "translation": {
-      "message": "Message Translation"
-   },
-   "translationBlacklist": {
-      "message": "Translation Exclusion List"
-   },
-   "translationUrl": {
-      "message": "Translation URL (GET)"
-   },
-   "translation_eagerMode": {
-      "message": "Translates before starting animation"
-   },
-   "translation_lazyMode": {
-      "message": "Translates after starting animation"
-   },
-   "translator": {
-      "message": "Translator"
-   },
-   "translator_external": {
-      "message": "External service (URL)"
-   },
-   "translator_fallbackNote": {
-      "message": "It will be felled back to the external service when browser built-in translator is unavailable."
-   },
-   "translator_internal": {
-      "message": "Browser built-in (Local)"
-   },
-   "traslationTiming": {
-      "message": ""
-   },
-   "typeOfLines_0": {
-      "message": "fixed"
-   },
-   "typeOfLines_1": {
-      "message": "max"
-   },
-   "typeOfLines_2": {
-      "message": "min"
-   },
-   "unlimited": {
-      "message": "Unlimited"
-   },
-   "up": {
-      "message": "Up"
-   },
-   "userDefinedCssTab": {
-      "message": "User CSS"
-   },
-   "user_defined_css_shortcut": {
-      "message": "Shortcut"
-   },
-   "validation_channelId": {
-      "message": "Enter 24 characters beginning with &quot;UC&quot; for each line:\nLine #$1 is invalid."
-   },
-   "verified": {
-      "message": "Verified"
-   },
-   "version": {
-      "message": "Version"
-   },
-   "warn_notSaved": {
-      "message": "After save, this extension will restart. You will need to manually refresh any YouTube tabs."
-   },
-   "wordWrap_0": {
-      "message": "No Wrap"
-   },
-   "wordWrap_1": {
-      "message": "Wrap Mode 1"
-   },
-   "wordWrap_2": {
-      "message": "Wrap Mode 2"
-   },
-   "you": {
-      "message": "You"
-   },
-   "ytp_menuitem_label_config": {
-      "message": "Configure Flusher"
-   },
-   "ytp_menuitem_label_pip": {
-      "message": "PiP / Popup w/ chat"
-   },
-   "ytp_menuitem_label_switch": {
-      "message": "Flush LiveChat"
-   }
+	"manifestName": {
+		"message": "YouTube LiveChat Flusher (Danmaku Chat)"
+	},
+	"manifestDescription": {
+		"message": "Revolutionize your YouTube viewing experience with Danmaku-style chat."
+	},
+	"notification_title_onInstall": {
+		"message": "Thank you for installing!\nClick to refresh YouTube tabs."
+	},
+	"notification_title_onUpdate": {
+		"message": "Updated to version $1.\nClick to refresh YouTube tabs."
+	},
+	"notification_title_onReload": {
+		"message": "Extension restarted.\nClick to refresh YouTube tabs."
+	},
+	"ytp_menuitem_label_switch": {
+		"message": "Flush LiveChat"
+	},
+	"ytp_menuitem_label_config": {
+		"message": "Configure Flusher"
+	},
+	"ytp_menuitem_label_pip": {
+		"message": "PiP w/ chat (beta)"
+	},
+	"close": {
+		"message": "Close"
+	},
+	"displayTab": {
+		"message": "Basic"
+	},
+	"byTypeTab": {
+		"message": "By Type"
+	},
+	"mutedWordsTab": {
+		"message": "Word Filter"
+	},
+	"userDefinedCssTab": {
+		"message": "User CSS"
+	},
+	"othersTab": {
+		"message": "Others"
+	},
+	"animationDuration": {
+		"message": "Animation Duration"
+	},
+	"fontSize": {
+		"message": "Font Size"
+	},
+	"lines": {
+		"message": "lines"
+	},
+	"typeOfLines_0": {
+		"message": "fixed"
+	},
+	"typeOfLines_1": {
+		"message": "max"
+	},
+	"typeOfLines_2": {
+		"message": "min"
+	},
+	"lineHeight": {
+		"message": "Line Height"
+	},
+	"fontFamily_fontWeight": {
+		"message": "Font Family/Weight"
+	},
+	"fontFamily_select_from_local": {
+		"message": "Select from local fonts"
+	},
+	"strokeStyle": {
+		"message": "Stroke Style"
+	},
+	"strokeColor": {
+		"message": "Color"
+	},
+	"strokeOffset": {
+		"message": "Offset"
+	},
+	"strokeBlur": {
+		"message": "Blur"
+	},
+	"layerOpacity": {
+		"message": "Chat Layer Opacity"
+	},
+	"backgroundOpacity": {
+		"message": "Background Opacity"
+	},
+	"opacity_0": {
+		"message": "0"
+	},
+	"opacity_1": {
+		"message": "1"
+	},
+	"maxWidth_wordWrap": {
+		"message": "Max Width/Wrap"
+	},
+	"wordWrap_0": {
+		"message": "No Wrap"
+	},
+	"wordWrap_1": {
+		"message": "Wrap Mode 1"
+	},
+	"wordWrap_2": {
+		"message": "Wrap Mode 2"
+	},
+	"displayLimit": {
+		"message": "Max Msg. Shown"
+	},
+	"containerLimit": {
+		"message": "Chat Frame Msg. Limit"
+	},
+	"unlimited": {
+		"message": "Unlimited"
+	},
+	"simultaneousMessage": {
+		"message": "Simultaneous Msg."
+	},
+	"simultaneousMessage_0": {
+		"message": "Flush all messages"
+	},
+	"simultaneousMessage_1": {
+		"message": "Flush only the first message per load"
+	},
+	"simultaneousMessage_2": {
+		"message": "Merge identical messages"
+	},
+	"simultaneousMessage_3": {
+		"message": "Merge identical messages, incl. previous"
+	},
+	"emojiExpression": {
+		"message": "Emoji Display"
+	},
+	"emojiExpression_0": {
+		"message": "Hide all"
+	},
+	"emojiExpression_1": {
+		"message": "Show all"
+	},
+	"emojiExpression_2": {
+		"message": "Replace with labels"
+	},
+	"emojiExpression_3": {
+		"message": "Replace with shortcuts"
+	},
+	"density": {
+		"message": "Density"
+	},
+	"density_dense": {
+		"message": "Dense"
+	},
+	"density_random": {
+		"message": "Random"
+	},
+	"overlapping": {
+		"message": "Overlapping"
+	},
+	"overlapping_transparent": {
+		"message": "Make transparent"
+	},
+	"overlapping_translate": {
+		"message": "Shift"
+	},
+	"overlapping_hidden": {
+		"message": "Hide"
+	},
+	"direction": {
+		"message": "Direction"
+	},
+	"direction_bottom_to_top": {
+		"message": "Bottom to top"
+	},
+	"direction_left_to_right": {
+		"message": "Left to right"
+	},
+	"layerSize": {
+		"message": "Layer Size"
+	},
+	"fitLayerSize": {
+		"message": "Fit to video size"
+	},
+	"adjustLayerSize": {
+		"message": "Manual Adjustment"
+	},
+	"layerCSS": {
+		"message": "Layer CSS"
+	},
+	"normal": {
+		"message": "Normal"
+	},
+	"member": {
+		"message": "Member"
+	},
+	"moderator": {
+		"message": "Moderator"
+	},
+	"owner": {
+		"message": "Owner"
+	},
+	"verified": {
+		"message": "Verified"
+	},
+	"you": {
+		"message": "You"
+	},
+	"superchat": {
+		"message": "Super Chat"
+	},
+	"sticker": {
+		"message": "Super Sticker"
+	},
+	"membership": {
+		"message": "Membership"
+	},
+	"milestone": {
+		"message": "Milestone"
+	},
+	"displaySettings": {
+		"message": "Display Settings"
+	},
+	"tooltip_authorPhoto": {
+		"message": "Author Photo"
+	},
+	"tooltip_authorName": {
+		"message": "Author Name"
+	},
+	"display_authorName": {
+		"message": "Name"
+	},
+	"tooltip_purchaseAmount": {
+		"message": "Purchase Amount"
+	},
+	"display_purchaseAmount": {
+		"message": "Amount"
+	},
+	"tooltip_milestoneMonths": {
+		"message": "Milestone Months"
+	},
+	"display_milestoneMonths": {
+		"message": "months"
+	},
+	"tooltip_chatMessage": {
+		"message": "Chat Message"
+	},
+	"display_chatMessage": {
+		"message": "Message"
+	},
+	"tooltip_membershipMessage": {
+		"message": "New/Upgraded Membership Message"
+	},
+	"display_membershipMessage": {
+		"message": "Message"
+	},
+	"tooltip_sticker": {
+		"message": "Sticker"
+	},
+	"display_sticker": {
+		"message": "Sticker"
+	},
+	"tooltip_stickerSize": {
+		"message": "Sticker size"
+	},
+	"display_stickerSize": {
+		"message": "Size"
+	},
+	"tooltip_customColor": {
+		"message": "Custom Color"
+	},
+	"display_customColor": {
+		"message": "Custom Color"
+	},
+	"placeholder_customCSS": {
+		"message": "Custom CSS"
+	},
+	"common": {
+		"message": "Common"
+	},
+	"show_username": {
+		"message": "Show usernames instead of handles"
+	},
+	"mutedWordsMode": {
+		"message": "Mode"
+	},
+	"mutedWordsMode_0": {
+		"message": "Off"
+	},
+	"mutedWordsMode_1": {
+		"message": "Hide messages containing the keyword"
+	},
+	"mutedWordsMode_2": {
+		"message": "Hide/replace the keyword"
+	},
+	"mutedWordsMode_3": {
+		"message": "Mask the characters"
+	},
+	"mutedWordsReplacement": {
+		"message": "Repl. Word/Char"
+	},
+	"placeholder_mutedWordsReplacement": {
+		"message": "Leave empty to hide"
+	},
+	"tooltip_mutedWordsReplacement": {
+		"message": "Only the first character is used for replacement"
+	},
+	"mutedWordsGrammar": {
+		"message": "Grammar"
+	},
+	"regexp": {
+		"message": "Use regular expression"
+	},
+	"placeholder_mutedWordsList": {
+		"message": "Enter one keyword per line."
+	},
+	"user_defined_css_shortcut": {
+		"message": "Shortcut"
+	},
+	"font_helper_select": {
+		"message": "Select font family..."
+	},
+	"up": {
+		"message": "Up"
+	},
+	"down": {
+		"message": "Down"
+	},
+	"delete": {
+		"message": "Delete"
+	},
+	"add": {
+		"message": "Add"
+	},
+	"confirm": {
+		"message": "Confirm"
+	},
+	"cancel": {
+		"message": "Cancel"
+	},
+	"addUserStyle": {
+		"message": "Add per-user styling"
+	},
+	"label": {
+		"message": "Label"
+	},
+	"Channel_ID": {
+		"message": "Channel ID\n(one per line)"
+	},
+	"displayStyle": {
+		"message": "Display style"
+	},
+	"fontFactor": {
+		"message": "Font size factor"
+	},
+	"placeholder_channelId": {
+		"message": "24 characters beginning with \"UC\""
+	},
+	"validation_channelId": {
+		"message": "Enter 24 characters beginning with \"UC\" on each line.\nInvalid lines: $1"
+	},
+	"placeholder_userStyleTextArea": {
+		"message": "/* Preview of CSS is displayed in this area. */"
+	},
+	"translation": {
+		"message": "Message Translation"
+	},
+	"targetLanguage": {
+		"message": "Target language"
+	},
+	"prefixOriginalLanguage": {
+		"message": "Show the original language at the start"
+	},
+	"exception": {
+		"message": "Except"
+	},
+	"addableByBrowserLanguageSettings": {
+		"message": "You can add more options\nvia the browser's language settings."
+	},
+	"translationTiming": {
+		"message": ""
+	},
+	"translation_eagerMode": {
+		"message": "Translate before the animation starts"
+	},
+	"translation_lazyMode": {
+		"message": "Translate after the animation starts"
+	},
+	"suffixOriginalMessage": {
+		"message": "Also show the untranslated message"
+	},
+	"timeshift": {
+		"message": "Time-shift"
+	},
+	"latencyNormal": {
+		"message": "Normal / Premiere"
+	},
+	"latencyLow": {
+		"message": "Low Latency"
+	},
+	"latencyUltraLow": {
+		"message": "Ultra-Low Latency"
+	},
+	"timeshift_note": {
+		"message": "(Only available for replays)"
+	},
+	"otherConfig": {
+		"message": "Open Other Options"
+	},
+	"aboutAddon": {
+		"message": "About Extension"
+	},
+	"version": {
+		"message": "Version"
+	},
+	"releaseNote": {
+		"message": "Release note"
+	},
+	"configFile": {
+		"message": "Config File"
+	},
+	"export": {
+		"message": "Export"
+	},
+	"import": {
+		"message": "Import"
+	},
+	"init": {
+		"message": "Reset"
+	},
+	"commonSettings": {
+		"message": "Common Settings"
+	},
+	"notification": {
+		"message": "Notifications"
+	},
+	"disabled": {
+		"message": "Disable"
+	},
+	"enabled": {
+		"message": "Enable"
+	},
+	"description_notification_disabled": {
+		"message": "Tabs with YouTube open will automatically reload."
+	},
+	"description_notification_enabled": {
+		"message": "Tabs with YouTube open will not automatically reload.\nClick the notification to reload them."
+	},
+	"whenUpdated": {
+		"message": "When Updated"
+	},
+	"loadingMode": {
+		"message": "Chat Loading Mode"
+	},
+	"livestream": {
+		"message": "Live"
+	},
+	"replay": {
+		"message": "Replay"
+	},
+	"mode_option_chatframe_dependent": {
+		"message": "ChatFrame Dependent Mode"
+	},
+	"mode_option_chatframe_independent": {
+		"message": "ChatFrame Independent Mode"
+	},
+	"description_chatframe_dependent_1": {
+		"message": "Works only while the chat frame is open."
+	},
+	"description_chatframe_dependent_2": {
+		"message": "Always falls back to Independent Mode on the mobile site (m.youtube.com)."
+	},
+	"description_chatframe_independent_1": {
+		"message": "Works even when the chat frame is closed."
+	},
+	"description_chatframe_independent_2": {
+		"message": "The time-shift function is available for replays; you can adjust when the chat flows."
+	},
+	"description_chatframe_independent_3": {
+		"message": "The operation may be unstable, especially for long videos."
+	},
+	"autostart": {
+		"message": "Automatically open the chat frame when watching replays"
+	},
+	"enabled_onDependentMode": {
+		"message": "Enable in ChatFrame Dependent Mode"
+	},
+	"enabled_always": {
+		"message": "Always enable"
+	},
+	"hotkey": {
+		"message": "Hotkeys (Keyboard Shortcuts)"
+	},
+	"hotkey_layer": {
+		"message": "Chat Layer"
+	},
+	"hotkey_panel": {
+		"message": "Config Panel"
+	},
+	"hotkey_pip": {
+		"message": "PiP"
+	},
+	"hotkey_alt": {
+		"message": "with Alt/Option key"
+	},
+	"hotkey_insensitive": {
+		"message": "Case Insensitive"
+	},
+	"message_pause": {
+		"message": "Pause the animation by right-clicking a message"
+	},
+	"person_detection": {
+		"message": "Person Detection (alpha)"
+	},
+	"enabled_wasm": {
+		"message": "Enable (WASM / Recommended)"
+	},
+	"enabled_gpu": {
+		"message": "Enable (GPU)"
+	},
+	"inference_backend": {
+		"message": "Inference Backend"
+	},
+	"inference_backend_onnx": {
+		"message": "ONNX (Standard / Recommended)"
+	},
+	"inference_backend_onnxnative": {
+		"message": "ONNX Native (Low Latency)"
+	},
+	"translationBlacklist": {
+		"message": "Translation Exclusion List"
+	},
+	"translator": {
+		"message": "Translator"
+	},
+	"translator_internal": {
+		"message": "Browser built-in (Local)"
+	},
+	"translator_external": {
+		"message": "External service (URL)"
+	},
+	"translator_fallbackNote": {
+		"message": "Falls back to the external service when the browser's built-in translator is unavailable."
+	},
+	"translation_request": {
+		"message": "Request"
+	},
+	"translation_request_method": {
+		"message": "Method"
+	},
+	"translation_request_url": {
+		"message": "URL"
+	},
+	"translation_request_bodyType": {
+		"message": "API Type"
+	},
+	"translation_request_bodyType_OpenAICompatible": {
+		"message": "OpenAI Compatible"
+	},
+	"translation_request_bodyType_custom": {
+		"message": "Custom"
+	},
+	"translation_request_apiKey": {
+		"message": "API Key"
+	},
+	"translation_request_modelName": {
+		"message": "Model Name"
+	},
+	"translation_request_body": {
+		"message": "Request Body"
+	},
+	"translation_invalidRequestBody": {
+		"message": "Invalid JSON"
+	},
+	"translation_response": {
+		"message": "Response"
+	},
+	"translation_response_style": {
+		"message": "Style"
+	},
+	"translation_response_style_Google": {
+		"message": "Google Translate"
+	},
+	"translation_response_style_OpenAI": {
+		"message": "OpenAI"
+	},
+	"placeholder_test_translation_text": {
+		"message": "Enter test translation text"
+	},
+	"test_translation": {
+		"message": "Test Translation"
+	},
+	"save": {
+		"message": "Save"
+	},
+	"warning_whenNotSaved": {
+		"message": "Saving will restart the extension and automatically reload all open YouTube tabs, though a manual refresh may sometimes be required."
+	},
+	"pip_marker": {
+		"message": "Now playing in picture-in-picture mode"
+	},
+	"menu_resumeAnimation": {
+		"message": "Resume the animation"
+	},
+	"menu_moveMessage": {
+		"message": "Move this message"
+	},
+	"menu_copyAuthorId": {
+		"message": "Copy the user ID of this message"
+	},
+	"menu_hideAuthor": {
+		"message": "Hide all messages by this user"
+	}
 }

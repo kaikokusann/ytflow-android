@@ -1,10 +1,13 @@
 import { logger } from './logging.mjs';
 
+// Fallback line-height factor when the stored value is empty or invalid.
+export const DEFAULT_LINE_HEIGHT = 1.4;
+
 export const DEFAULT_CONFIG = Object.freeze({
 	styles: {
 		animation_duration: '8s',
 		font_size: '32px',
-		line_height: '1.4',
+		line_height: `${DEFAULT_LINE_HEIGHT}`,
 		font_family: 'sans-serif',
 		font_weight: '500',
 		stroke_color: '#000000',
@@ -30,20 +33,18 @@ export const DEFAULT_CONFIG = Object.freeze({
 		density: 0,
 		overlapping: 0,
 		direction: 0,
+		layer_autofit: 0,
 		show_username: 0,
-		translation: 0,
-		except_lang: 0,
-		translation_timing: 0,
-		suffix_original: 0,
-		time_shift: 0,
+		time_shift_normal: 0,
+		time_shift_low: 0,
+		time_shift_ultralow: 0,
+		notification_updated: 0,
 		/** @type {import("./main.mjs").FetchingModeEnum} */
 		mode_livestream: 1,
 		/** @type {import("./main.mjs").FetchingModeEnum} */
 		mode_replay: 1,
 		autostart: 0,
-		pip_window_mode: 1,
 		message_pause: 1,
-		person_detection: 0,
 	},
 	parts: {
 		normal: { photo: false, name: false, message: true, color: '', strokeColor: '' },
@@ -71,9 +72,9 @@ export const DEFAULT_CONFIG = Object.freeze({
 		'': '',
 	},
 	hotkeys: {
-		layer: { key: '', alt: false },
-		panel: { key: '', alt: false },
-		pip: { key: '', alt: false },
+		layer: { key: '', alt: false, insensitive: false },
+		panel: { key: '', alt: false, insensitive: false },
+		pip: { key: '', alt: false, insensitive: false },
 	},
 	mutedWords: {
 		/** @type {import("./chat_message.mjs").MutedWordModeEnum} */
@@ -84,12 +85,37 @@ export const DEFAULT_CONFIG = Object.freeze({
 		plainList: [],
 	},
 	translation: {
-		/** @type {"internal" | "external"} */
-		translator: 'internal',
-		url: 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=$sl&tl=$tl&dt=t&dt=bd&dj=1&q=$q',
+		// Formerly others.translation
+		targetIndex: 0,
+		// Formerly others.except_lang
+		exceptionFlag: 0,
+		/** @type {"eager" | "lazy"} */
+		mode: 'eager',
+		// Formerly others.translation
+		prefixLangCode: false,
+		// Formerly others.suffix_original
+		suffixOriginal: false,
 		regexp: false,
 		/** @type {string[]} */
 		plainList: [],
+		/** @type {"internal" | "external"} */
+		translator: 'internal',
+		/** @type {"GET" | "POST"} */
+		method: 'GET',
+		/** @type {"Google" | "OpenAI"} */
+		responseStyle: 'Google',
+		url: 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=$sl&tl=$tl&dt=t&dt=bd&dj=1&q=$q',
+		apiKey: '',
+		modelName: '',
+		/** @type {"OpenAI" | "custom"} */
+		bodyType: 'OpenAI',
+		bodyContent: '',
+	},
+	personDetection: {
+		/** @type {"" | "wasm" | "gpu"} */
+		device: '',
+		/** @type {"onnx" | "onnx-native"} */
+		backend: 'onnx',
 	},
 });
 
@@ -113,13 +139,17 @@ class ConfigHandler {
 	set(target, prop, val, _recv) {
 		if (prop in target) {
 			target[prop] = val;
+			const dispVal = typeof val === 'string' ? `"${val}"` : val;
 			browser.storage.local.set({ [this.#name]: target }).then(() => {
-				const dispVal = typeof val === 'string' ? `"${val}"` : val;
 				logger.info(`Successfully saved config:`, `${this.#name}["${prop}"] =`, dispVal);
+			}, () => {
+				logger.error(`Failed to save config:`, `${this.#name}["${prop}"] =`, dispVal);
 			});
 			return true;
+		} else {
+			logger.warn(`Property not found in config:`, `${this.#name}["${prop}"]`);
+			return false;
 		}
-		return false;
 	}
 }
 
@@ -129,18 +159,23 @@ class ConfigHandler {
  */
 
 class ConfigStore {
+	/** @type {boolean} */
+	isLoaded;
+	/** @type {UnwrapReadonly<typeof DEFAULT_CONFIG>} */
+	data;
+	/** @type {UnwrapReadonly<typeof this.data>} */
+	proxies;
+
 	constructor() {
 		this.isLoaded = false;
-		/** @type {UnwrapReadonly<typeof DEFAULT_CONFIG>} */
 		this.data = structuredClone(DEFAULT_CONFIG);
+		this.proxies = this.#createProxies();
+	}
 
-		/** @type {UnwrapReadonly<typeof this.data>} */
-		// @ts-expect-error
-		this.proxies = Object.fromEntries(Object.entries(this.data).map(([k, v]) => {
-			const handler = new ConfigHandler(k);
-			const proxy = new Proxy(v, handler);
-			return [ k, proxy ];
-		}));
+	#createProxies() {
+		const dataEntries = Object.entries(this.data);
+		const proxyEntries = dataEntries.map(([k, v]) => [ k, new Proxy(v, new ConfigHandler(k)) ]);
+		return Object.fromEntries(proxyEntries);
 	}
 
 	/**
@@ -150,6 +185,7 @@ class ConfigStore {
 	async load(json = undefined) {
 		/** @type {Partial<UnwrapReadonly<typeof this.data>>} */
 		const stored = json ?? await browser.storage.local.get(null);
+		this.migrate(stored);
 		Object.assign(this.data.styles, stored.styles);
 		Object.assign(this.data.others, stored.others);
 		for (const [k, v] of Object.entries(stored.parts ?? {})) {
@@ -157,13 +193,59 @@ class ConfigStore {
 		}
 		Object.assign(this.data.cssTexts, stored.cssTexts);
 		for (const [k, v] of Object.entries(stored.hotkeys ?? {})) {
-			const source = typeof v === 'string' ? { key: v, alt: false } : v ?? {};
+			const source = typeof v === 'string' ? { key: v, alt: false, insensitive: false } : v ?? {};
 			Object.assign(this.data.hotkeys[k], source);
 		}
 		Object.assign(this.data.mutedWords, stored.mutedWords);
 		Object.assign(this.data.translation, stored.translation);
+		Object.assign(this.data.personDetection, stored.personDetection);
 		this.isLoaded = true;
 		return this;
+	}
+
+	/**
+	 * @typedef FormerConfigSchema
+	 * @prop {Record<string, number>} others
+	 */
+	/**
+	 * Migrates the stored data to the current schema.
+	 * Only legacy numeric keys under `others` are handled here; the modern
+	 * sections are merged separately by {@link load}. `others` is intentionally
+	 * loose so a partial/legacy payload (missing most fields) still type-checks.
+	 * @param {Partial<Omit<UnwrapReadonly<typeof this.data>, 'others'> & FormerConfigSchema>} stored
+	 */
+	migrate(stored) {
+		if (stored.others?.time_shift !== undefined) {
+			const former = stored.others.time_shift;
+			this.data.others.time_shift_normal = former;
+			this.data.others.time_shift_low = former;
+			this.data.others.time_shift_ultralow = former;
+			delete stored.others.time_shift;
+		}
+		if (stored.others?.translation !== undefined) {
+			const former = stored.others.translation;
+			this.data.translation.targetIndex = Math.abs(former) | 0;
+			this.data.translation.prefixLangCode = former < 0;
+			delete stored.others.translation;
+		}
+		if (stored.others?.except_lang !== undefined) {
+			this.data.translation.exceptionFlag = stored.others.except_lang;
+			delete stored.others.except_lang;
+		}
+		if (stored.others?.suffix_original !== undefined) {
+			this.data.translation.suffixOriginal = stored.others.suffix_original > 0;
+			delete stored.others.suffix_original;
+		}
+		if (stored.others?.translation_timing !== undefined) {
+			this.data.translation.mode = stored.others.translation_timing ? 'lazy' : 'eager';
+			delete stored.others.translation_timing;
+		}
+		if (stored.others?.person_detection !== undefined) {
+			const device = /** @type {const} */ (['', 'wasm', 'gpu']).at(stored.others.person_detection);
+			this.data.personDetection.device = device ?? '';
+			delete stored.others.person_detection;
+			logger.debug(this.data.personDetection);
+		}
 	}
 
 	get styles() { return this.proxies.styles; }
@@ -173,10 +255,12 @@ class ConfigStore {
 	get mutedWords() { return this.proxies.mutedWords; }
 	get cssTexts() { return this.proxies.cssTexts; }
 	get translation() { return this.proxies.translation; }
+	get personDetection() { return this.proxies.personDetection; }
 
 	async reset() {
 		await browser.storage.local.clear();
 		this.data = structuredClone(DEFAULT_CONFIG);
+		this.proxies = this.#createProxies();
 	}
 }
 

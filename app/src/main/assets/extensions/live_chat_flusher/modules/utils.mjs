@@ -1,47 +1,12 @@
 /**
- * Checks if now in PiP-mode
- * @returns {boolean} if not PiP-mode now
- */
-export function isNotPip() {
-	return !self.documentPictureInPicture?.window && !document.getElementById('yt-lcf-pip-marker');
-}
-
-const domParser = new DOMParser();
-
-/**
- * Loads template html as DOM.
- * @param {string} path file path of templete html
- * @param {string[]} [i18nAttrs] attributes that require i18n
- * @returns {Promise<Document>} document object
- */
-export async function loadTemplateDocument(path, i18nAttrs = []) {
-	const url = browser.runtime.getURL(path);
-	const text = await fetch(url).then(res => res.text());
-	// Firefox 149+ will crash with Document.parseHTMLUnsafe().
-	const doc = domParser.parseFromString(text.replace(/\r?\n|\t+/g, ''), 'text/html');
-	for (const el of doc.querySelectorAll('[data-i18n]')) {
-		const key = el.getAttribute('data-i18n');
-		if (key) el.textContent = browser.i18n.getMessage(key);
-	}
-	for (const attr of i18nAttrs) {
-		/** @type {NodeListOf<HTMLElement>} */
-		const elems = doc.querySelectorAll(`[data-i18n-${attr}]`);
-		for (const el of elems) {
-			const key = el.getAttribute(`data-i18n-${attr}`);
-			if (key) el.setAttribute(attr, browser.i18n.getMessage(key));
-		}
-	}
-	return doc;
-}
-
-/**
  * Gets string from a message object.
- * @param { LiveChat.Runs | LiveChat.SimpleText | undefined } message message object: Runs or SimpleText
+ * @param { LiveChat.Runs | LiveChat.SimpleText | LiveChat.RichTextContent | undefined } message message object: Runs or SimpleText
  * @returns {string} message string
  */
 export function getText(message) {
 	if (!message) return '';
 	if ('simpleText' in message) return message.simpleText;
+	if ('content' in message) return message.content;
 	const rslt = [];
 	for (const r of message.runs) {
 		if ('text' in r) {
@@ -54,28 +19,11 @@ export function getText(message) {
 }
 
 /**
- * Escapes the text in order to convert into regular expression.
+ * Converts a plain text to PascalCase.
  * @param {string} str plain text
- * @returns escaped text
+ * @returns {string} PascalCase text
  */
-export const escapeRegExp = str => str.replace(/[.*+\-?^${}()|[\]\\]/g, '\\$&');
-
-/**
- * Refreshes the regular expression list from the original list.
- * @param {RegExp[]} reList regular expression list
- * @param {object} opt
- * @param {boolean} opt.regexp whether the original list is regular expression
- * @param {string[]} opt.plainList original list
- */
-export function refreshWordsList(reList, { regexp, plainList }) {
-	reList.length = 0;
-	if (regexp) {
-		for (const s of plainList) reList.push(new RegExp(s, 'g'));
-	} else if (plainList.length > 0) {
-		const re = new RegExp(plainList.map(escapeRegExp).join('|'), 'g');
-		reList.push(re);
-	}
-}
+export const toPascalCase = str => str.toLowerCase().replace(/(?:^|_+|-+)(\w)/g, (_, m) => m.toUpperCase());
 
 /**
  * Converts color from long integer to array of integer.
@@ -91,6 +39,7 @@ export function getColorRGB(long) {
 /**
  * Formats milliseconds number to "h:mm:ss.fff"-style.
  * @param {number} ms milliseconds
+ * @returns {string} formatted string
  */
 export function formatMilliseconds(ms) {
 	const SECOND = 1000;
@@ -103,4 +52,77 @@ export function formatMilliseconds(ms) {
 	const ss = zfill((ms % MINUTE) / SECOND);
 	const fff = zfill(ms % SECOND, 3);
 	return (h > 0 ? `${h}:` : '') + `${mm}:${ss}.${fff}`;
+}
+
+/**
+ * Resolves a JSON Pointer against a JSON object.
+ * @param {any} obj the target JSON object or array
+ * @param {string} pointer the JSON Pointer string
+ * @returns {any} the resolved value, or `undefined` if not found
+ * @throws if the pointer is non-empty and does not start with "/"
+ */
+export function getValueByJSONPointer(obj, pointer) {
+	if (pointer === '') return obj;
+	if (!pointer.startsWith('/')) {
+		throw new Error('Pointer must start with "/"');
+	}
+	const tokens = pointer.split('/').slice(1);
+	let cur = obj;
+	for (const token of tokens) {
+		if (typeof cur !== 'object' || cur === null) return undefined;
+		const key = token.replace(/~1/g, '/').replace(/~0/g, '~');
+		if (Object.hasOwn(cur, key)) cur = cur[key];
+		else return undefined;
+	}
+	return cur;
+}
+
+/**
+ * @typedef HotkeyConfig
+ * @prop {string} key the configured key
+ * @prop {boolean} alt whether the Alt/Option key must be held
+ * @prop {boolean} insensitive whether to ignore upper/lowercase
+ */
+
+/**
+ * Tests whether a keydown event matches a hotkey.
+ * The pressed key is treated as lowercase without Shift and uppercase with
+ * Shift, which cancels the effect of CapsLock regardless of its state.
+ * @param {{ key: string, shiftKey: boolean, altKey: boolean }} event the keydown event
+ * @param {HotkeyConfig} hotkey the hotkey configuration
+ * @returns {boolean} whether the event matches the hotkey
+ */
+export function matchHotkey({ key, shiftKey, altKey }, hotkey) {
+	if (hotkey.key === '') return false;
+	const pressed = shiftKey ? key.toUpperCase() : key.toLowerCase();
+	const sameKey = hotkey.insensitive
+		? pressed.toLowerCase() === hotkey.key.toLowerCase()
+		: pressed === hotkey.key;
+	return sameKey && altKey === hotkey.alt;
+}
+
+/**
+ * Waits for the given number of milliseconds.
+ * @param {number} ms milliseconds
+ * @param {object} [options] options
+ * @param {AbortSignal} [options.signal] signal for aborting sleep
+ * @returns {Promise<void>} void promise
+ */
+export function sleep(ms, { signal } = {}) {
+	/** @type {PromiseWithResolvers<void>} */
+	const { promise, resolve } = Promise.withResolvers();
+	if (signal?.aborted) {
+		resolve();
+		return promise;
+	}
+	/** @type {number | undefined} */
+	let timer = undefined;
+	const onDone = () => {
+		clearTimeout(timer);
+		signal?.removeEventListener('abort', onDone);
+		resolve();
+	};
+	if (ms > 0 && Number.isFinite(ms)) timer = setTimeout(onDone, ms);
+	signal?.addEventListener('abort', onDone, { once: true });
+	return promise;
 }

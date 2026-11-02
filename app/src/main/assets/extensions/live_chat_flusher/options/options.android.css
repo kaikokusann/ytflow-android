@@ -1,0 +1,120 @@
+:root {
+	color-scheme: light dark;
+}
+body {
+	font-size: 18px;
+	line-height: 1.5;
+}
+[hidden] {
+	display: none !important;
+}
+section {
+	padding: 16px;
+}
+h2 {
+	font-size: 22px;
+	line-height: 1.35;
+}
+form > section:first-of-type {
+	font-size: 14px;
+}
+form > section:first-of-type tr {
+	display: grid;
+	grid-template-columns: 90px minmax(0, 1fr);
+	gap: 8px;
+	padding: 4px 0;
+}
+form > section:first-of-type th, form > section:first-of-type td {
+	display: block;
+	margin: 0;
+	padding: 0;
+}
+.top-actions {
+	background: var(--background-color);
+	border-bottom: 1px solid var(--border-color);
+	padding: 12px 16px;
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+button, input, select, textarea {
+	font: inherit;
+}
+button {
+	margin: 4px 8px 4px 0;
+	min-height: 48px;
+}
+#btn-save-top, #btn-save {
+	border-radius: 8px;
+	font-size: 18px;
+	font-weight: 700;
+	margin: 0;
+	min-height: 52px;
+	width: min(100%, 280px);
+}
+button:disabled {
+	background: color-mix(in srgb, var(--text-color) 12%, var(--background-color));
+	color: var(--text-color-deemphasized);
+	opacity: 1;
+}
+label {
+	align-items: center;
+	display: inline-flex;
+	gap: 8px;
+	min-height: 48px;
+	white-space: normal;
+}
+input[type="checkbox"], input[type="radio"] {
+	flex: 0 0 24px;
+	height: 24px;
+	margin: 0;
+	width: 24px;
+}
+input[type="radio"] + span {
+	padding: 0;
+}
+input:not([type="checkbox"]):not([type="radio"]), select {
+	min-height: 48px;
+	min-width: 0;
+}
+input[name^="hotkey"]:not([type="checkbox"]) {
+	width: 64px;
+}
+textarea {
+	height: 160px;
+	min-height: 100px;
+	resize: vertical;
+}
+dl.note, pre {
+	margin: 12px 0;
+	padding: 12px;
+}
+pre {
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
+}
+dd {
+	margin-inline-start: 0;
+}
+table {
+	width: 100%;
+}
+.flex {
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.flex > input {
+	flex: 1 1 180px;
+}
+@media (max-width: 640px) {
+	table, tbody, tr, th, td {
+		display: block;
+	}
+	th {
+		margin-top: 8px;
+		white-space: normal;
+	}
+	label {
+		margin-inline-end: 12px;
+	}
+}

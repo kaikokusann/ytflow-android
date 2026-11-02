@@ -1,6 +1,8 @@
 import { logger } from './logging.mjs';
 import { fetchInnerTube } from './innertube.mjs';
-import { formatMilliseconds } from './utils.mjs';
+import { formatMilliseconds, sleep } from './utils.mjs';
+
+const MIN_SLEEP_MS = 250;
 
 export class ReplayActionBuffer {
 	/** @type {Map<number, Set<LiveChat.LiveChatItemAction>>} */
@@ -52,7 +54,8 @@ export class ReplayActionBuffer {
 		for (let i = startIndex, l = this.#sortedTimes.length; i < l; i++) {
 			const time = this.#sortedTimes[i];
 			if (time > currentOffset) break;
-			this.#map.get(time)?.forEach(a => result.push(a));
+			const actions = this.#map.get(time);
+			if (actions) for (const a of actions) result.push(a);
 		}
 		this.update(currentOffset);
 		return result;
@@ -90,15 +93,14 @@ export class ReplayActionBuffer {
  * Generates the replay chat actions from the response of InnerTube API.
  * @param {AbortSignal} signal signal for aborting fetching
  * @param {string} initialContinuation initial continuation token
- * @param {object} [options]
- * @param {boolean} [options.auth]
- * @param {number} [options.offset]
+ * @param {string} nonce nonce for the custom event
+ * @param {HTMLVideoElement} [video] `<video>` element
+ * @param {{auth?: boolean, offset?: number}} [options] standalone chat settings
  * @returns {AsyncGenerator<LiveChat.ReplayChatItemAction[]>} chat actions generator
  */
-export async function* getReplayChatActionsAsyncIterable(signal, initialContinuation, options = {}) {
-	const url = new URL('/youtubei/v1/live_chat/get_live_chat_replay', location.origin);
+export async function* getReplayChatActionsAsyncIterable(signal, initialContinuation, nonce, video, options = {}) {
+	const url = new URL('https://www.youtube.com/youtubei/v1/live_chat/get_live_chat_replay');
 	url.searchParams.set('prettyPrint', 'false');
-	const auth = options.auth ?? true;
 
 	/** @type {Map<string, string>} */
 	const continuations = new Map();
@@ -108,15 +110,18 @@ export async function* getReplayChatActionsAsyncIterable(signal, initialContinua
 	let contents = { actions: [] };
 
 	/** @type {SeekInfo | undefined} */
-	let seekInfo = Number.isFinite(options.offset) && options.offset > 0
-		? { offset: Math.max(0, options.offset | 0) }
-		: undefined;
+	let seekInfo = typeof options.offset === 'number' && options.offset > 0 ? { offset: options.offset } : undefined;
 	let controller = new AbortController();
-	signal.addEventListener('ytlcf-seek', e => {
+	signal.addEventListener(`ytlcf-seek:${nonce}`, e => {
 		seekInfo = /** @type {SeekInfo} */ (e.detail);
 		logger.debug(`Reference offset was set to ${formatMilliseconds(seekInfo.offset)}`);
 		controller.abort();
-	}, { passive: true });
+	});
+	let playbackRate = 1;
+	signal.addEventListener(`ytlcf-ratechange:${nonce}`, e => {
+		playbackRate = e.detail?.rate || 1;
+		logger.debug(`Playback rate was set to x${playbackRate}`);
+	});
 
 	let prev = body.continuation;
 	let prevOffset = 0;
@@ -127,15 +132,13 @@ export async function* getReplayChatActionsAsyncIterable(signal, initialContinua
 			prev = continuations.get(prev) || '';
 			body = { continuation: prev };
 		}
-		contents = await getContentsAsync(url, body, { auth });
-		let sleepMs = 250;
+		contents = await getContentsAsync(url, body, options);
+		let sleepMs = MIN_SLEEP_MS;
 		if (seekInfo) {
 			body = getContinuation(contents, true, seekInfo.offset);
 			prevOffset = seekInfo.offset;
 			seekInfo = undefined;
-			controller.abort();
 			prev = body.continuation;
-			controller = new AbortController();
 			continue;
 		}
 		if (contents.actions) yield contents.actions;
@@ -143,13 +146,16 @@ export async function* getReplayChatActionsAsyncIterable(signal, initialContinua
 		if (prev !== initialContinuation) continuations.set(prev, body.continuation);
 		const offset = Number.parseInt(contents.actions?.at(-1)?.replayChatItemAction.videoOffsetTimeMsec || '-1', 10);
 		if (offset >= prevOffset) {
-			const playbackRate = JSON.parse(sessionStorage.getItem('yt-player-playback-rate') || `{"data":"1"}`).data || '1';
-			const offsetDiff = (offset - prevOffset) / Number.parseFloat(playbackRate) - 250 | 0;
-			sleepMs = Math.max(250, offsetDiff);
+			let offsetDiff = offset - prevOffset;
+			if (video) {
+				const shiftSec = Number.parseFloat(video.getAttribute('data-shift-sec') || '0');
+				offsetDiff = offset - (video.currentTime - shiftSec) * 1e3;
+			}
+			sleepMs = Math.max(MIN_SLEEP_MS, (offsetDiff / playbackRate - MIN_SLEEP_MS) | 0);
 			prevOffset = offset;
 			logger.debug(
 				`Fetched ${contents.actions?.length || 'no'} chat actions up to ${formatMilliseconds(offset)}.`,
-				`Next request will be sent ${(sleepMs / 1000).toFixed(3)} sec after.`
+				`Next request will be sent ${(sleepMs * 1e-3).toFixed(3)} sec after.`
 			);
 		} else {
 			sleepMs = Infinity;
@@ -166,24 +172,22 @@ export async function* getReplayChatActionsAsyncIterable(signal, initialContinua
  * Generates the live chat actions from the response of InnerTube API.
  * @param {AbortSignal} signal signal for aborting fetching
  * @param {string} initialContinuation initial continuation token
- * @param {object} [options]
- * @param {boolean} [options.auth]
+ * @param {{auth?: boolean}} [options] standalone chat settings
  * @returns {AsyncGenerator<LiveChat.LiveChatItemAction[]>} empty generator
  */
 export async function* getLiveChatActionsAsyncIterable(signal, initialContinuation, options = {}) {
-	const url = new URL('/youtubei/v1/live_chat/get_live_chat', location.origin);
+	const url = new URL('https://www.youtube.com/youtubei/v1/live_chat/get_live_chat');
 	url.searchParams.set('prettyPrint', 'false');
-	const auth = options.auth ?? true;
 
 	/** @type {ContinuationTokenContainer} */
 	let body = { continuation: initialContinuation };
 	/** @type { { actions: LiveChat.LiveChatItemAction[] } } */
 	let contents = { actions: [] };
 	while (!signal.aborted && body.continuation) {
-		contents = await getContentsAsync(url, body, { auth });
+		contents = await getContentsAsync(url, body, options);
 		yield contents.actions || [];
 		body = getContinuation(contents, false);
-		await sleep(250);
+		await sleep(MIN_SLEEP_MS);
 	}
 }
 
@@ -191,8 +195,7 @@ export async function* getLiveChatActionsAsyncIterable(signal, initialContinuati
  * Fetches the livechat contents object from the given URL and continuation token.
  * @param {URL} url URL
  * @param {ContinuationTokenContainer} body continuation token container
- * @param {object} [options]
- * @param {boolean} [options.auth]
+ * @param {{auth?: boolean}} [options] request settings
  * @returns {Promise<any>} livechat contents object
  */
 async function getContentsAsync(url, body, options = {}) {
@@ -229,32 +232,6 @@ function getContinuation(contents, isReplay, offset) {
 			: c?.invalidationContinuationData?.continuation || c?.timedContinuationData?.continuation;
 		return { continuation };
 	}
-}
-
-/**
- * Waits for the given number of milliseconds.
- * @param {number} ms milliseconds
- * @param {object} [options] options
- * @param {AbortSignal} [options.signal] signal for aborting sleep
- * @returns {Promise<void>} void promise
- */
-function sleep(ms, { signal } = {}) {
-	/** @type {PromiseWithResolvers<void>} */
-	const { promise, resolve } = Promise.withResolvers();
-	if (signal?.aborted) {
-		resolve();
-		return promise;
-	}
-	/** @type {number | undefined} */
-	let timer = undefined;
-	const onDone = () => {
-		clearTimeout(timer);
-		signal?.removeEventListener('abort', onDone);
-		resolve();
-	};
-	if (ms > 0 && Number.isFinite(ms)) timer = setTimeout(onDone, ms);
-	signal?.addEventListener('abort', onDone, { once: true });
-	return promise;
 }
 
 /**

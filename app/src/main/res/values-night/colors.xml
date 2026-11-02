@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="settings_sheet_background">#191C1D</color>
+    <color name="settings_card_background">#2C2F30</color>
+    <color name="settings_card_stroke">#424647</color>
+    <color name="settings_text_primary">#F4F4F5</color>
+    <color name="settings_text_secondary">#ADB1B3</color>
+    <color name="settings_accent">#F5092B</color>
+    <color name="settings_on_accent">#FFFFFF</color>
+    <color name="settings_accent_container">#8F1239</color>
+    <color name="settings_on_accent_container">#FFD9E1</color>
+    <color name="settings_switch_off">#73777B</color>
+</resources>

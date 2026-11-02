@@ -1,45 +1,46 @@
+:root {
+  color-scheme: light dark;
+}
+* {
+  box-sizing: border-box;
+}
 body {
-  color: #111;
-  font: 52px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  background: light-dark(#fff, #23222b);
+  color: light-dark(#15141a, #fbfbfe);
+  font: 18px/1.5 system-ui, sans-serif;
   margin: 0;
-  width: 100vw;
 }
 
 form {
   display: grid;
-  gap: .38em;
-  padding: .45em;
-}
-
-h1 {
-  font-size: 1.23em;
-  line-height: 1.25;
-  margin: 0 0 4px;
+  gap: 8px;
+  padding: 16px;
 }
 
 label {
   align-items: center;
   display: flex;
-  gap: .35em;
-  min-height: 1.35em;
+  gap: 12px;
+  min-height: 48px;
 }
 
 input[type="checkbox"],
 input[type="radio"] {
   flex: 0 0 auto;
-  height: 1em;
-  min-height: 44px;
-  min-width: 44px;
-  width: 1em;
+  height: 24px;
+  margin: 0;
+  width: 24px;
 }
 
 fieldset {
-  border: 1px solid #aaa;
+  border: 1px solid light-dark(#ccc, #555);
+  border-radius: 8px;
   display: grid;
-  gap: .28em;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: .1em 0;
-  padding: .35em;
+  gap: 4px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  margin: 8px 0;
+  min-width: 0;
+  padding: 12px;
 }
 
 legend {
@@ -47,8 +48,8 @@ legend {
 }
 
 p {
-  color: #666;
-  font-size: .92em;
+  color: light-dark(#555, #bbb);
+  font-size: 14px;
   line-height: 1.4;
   margin: 4px 0 0;
 }

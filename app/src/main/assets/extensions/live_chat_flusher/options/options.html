@@ -1,21 +1,26 @@
 <!DOCTYPE html>
-<meta charset=utf-8>
-<title>browser_action</title>
+<meta name=viewport content="width=device-width, initial-scale=1">
+<title>YouTube LiveChat Flusher: Options</title>
 <link rel=stylesheet href=options.css>
-<form id=form name=form>
+<link rel=stylesheet href=options.android.css>
+<form id=form>
+	<div class=top-actions>
+		<button class=primary id=btn-save-top type=submit disabled data-i18n=save></button>
+	</div>
 	<section>
-		<h1 data-i18n=manifestName>YouTube LiveChat Flusher</h1>
-		<div class=top-actions>
-			<button class=primary id=btn-save-top type=submit disabled data-i18n=save></button>
-		</div>
 		<table>
 			<tr>
 				<th data-i18n=version>
 				<td data-manifest=version>
 			<tr>
 				<th>GitHub
-				<td><a href=https://github.com/ys-j/YoutubeLiveChatFlusher target=_blank>Home</a> / <a href=https://github.com/ys-j/YoutubeLiveChatFlusher/wiki target=_blank>Wiki</a>
-			<tr style="display:none;">
+				<td>
+					<a href=https://github.com/ys-j/YoutubeLiveChatFlusher target=_blank>Home</a>
+					/
+					<a href=https://github.com/ys-j/YoutubeLiveChatFlusher/wiki target=_blank>Wiki</a>
+					/
+					<a href=https://github.com/ys-j/YoutubeLiveChatFlusher/releases target=_blank data-i18n=releaseNote></a>
+			<tr hidden>
 				<th data-i18n=configFile>
 				<td>
 					<button id=btn-export type=button data-i18n=export></button>
@@ -26,6 +31,27 @@
 	<section>
 		<h2 data-i18n=commonSettings></h2>
 		<dl>
+			<dt hidden data-i18n=notification>
+			<dd hidden>
+				<table>
+					<tr>
+						<th data-i18n=whenUpdated>
+						<td>
+							<label>
+								<input type=radio name=notification_whenUpdated value=0>
+								<span data-i18n=disabled></span>
+							</label>
+							<label>
+								<input type=radio name=notification_whenUpdated value=1>
+								<span data-i18n=enabled></span>
+							</label>
+				</table>
+				<dl class=note>
+					<dt data-i18n=disabled>
+					<dd class=preline data-i18n=description_notification_disabled>
+					<dt data-i18n=enabled>
+					<dd class=preline data-i18n=description_notification_enabled>
+				</dl>
 			<dt data-i18n=loadingMode>
 			<dd>
 				<table>
@@ -57,6 +83,7 @@
 					<dd>
 						<ul>
 							<li data-i18n=description_chatframe_dependent_1>
+							<li data-i18n=description_chatframe_dependent_2>
 						</ul>
 					<dt data-i18n=mode_option_chatframe_independent>
 					<dd>
@@ -80,16 +107,6 @@
 					<input type=radio name=autostart value=2>
 					<span data-i18n=enabled_always></span>
 				</label>
-			<dt style="display:none;" data-i18n=pipWindowMode>
-			<dd style="display:none;">
-				<label>
-					<input type=radio name=pip_window_mode value=0>
-					<span data-i18n=pipWindowMode_pip></span>
-				</label>
-				<label>
-					<input type=radio name=pip_window_mode value=1>
-					<span data-i18n=pipWindowMode_popup></span>
-				</label>
 			<dt data-i18n=hotkey>
 			<dd>
 				<table>
@@ -103,6 +120,10 @@
 								<input type=checkbox name=hotkey_layer_alt>
 								<span data-i18n=hotkey_alt></span>
 							</label>
+							<label>
+								<input type=checkbox name=hotkey_layer_insensitive>
+								<span data-i18n=hotkey_insensitive></span>
+							</label>
 					<tr>
 						<th>
 							<label for=hotkey_panel_key data-i18n=hotkey_panel></label>
@@ -113,6 +134,10 @@
 								<input type=checkbox name=hotkey_panel_alt>
 								<span data-i18n=hotkey_alt></span>
 							</label>
+							<label>
+								<input type=checkbox name=hotkey_panel_insensitive>
+								<span data-i18n=hotkey_insensitive></span>
+							</label>
 					<tr>
 						<th>
 							<label for=hotkey_pip_key data-i18n=hotkey_pip></label>
@@ -122,6 +147,10 @@
 							<label>
 								<input type=checkbox name=hotkey_pip_alt>
 								<span data-i18n=hotkey_alt></span>
+							</label>
+							<label>
+								<input type=checkbox name=hotkey_pip_insensitive>
+								<span data-i18n=hotkey_insensitive></span>
 							</label>
 				</table>
 			<dt data-i18n=message_pause>
@@ -134,20 +163,29 @@
 					<input type=radio name=message_pause value=1>
 					<span data-i18n=enabled></span>
 				</label>
-			<dt style="display:none;" class=only-firefox data-i18n=person_detection>
-			<dd style="display:none;" class=only-firefox>
+			<dt class="only-firefox only-desktop" data-i18n=person_detection>
+			<dd class="only-firefox only-desktop">
 				<label>
-					<input type=radio name=person_detection value=0>
+					<input type=radio name=person_detector_device value>
 					<span data-i18n=disabled></span>
 				</label>
 				<label>
-					<input type=radio name=person_detection value=1>
+					<input type=radio name=person_detector_device value=wasm>
 					<span data-i18n=enabled_wasm></span>
 				</label>
 				<label>
-					<input type=radio name=person_detection value=2>
+					<input type=radio name=person_detector_device value=gpu>
 					<span data-i18n=enabled_gpu></span>
 				</label>
+				<table>
+					<tr>
+						<th data-i18n=inference_backend>
+						<td>
+							<select name=person_detector_backend>
+								<option value=onnx data-i18n=inference_backend_onnx>
+								<option value=onnx-native data-i18n=inference_backend_onnxnative>
+							</select>
+				</table>
 		</dl>
 	</section>
 	<section>
@@ -168,13 +206,81 @@
 					<option data-i18n=translator_external value=external>
 				</select>
 				<div><small data-i18n=translator_fallbackNote></small></div>
-			<dt data-i18n=translationUrl>
-			<dd><input type=url name=translation_url required>
+			<dt data-i18n=translation_request>
+			<dd>
+				<table>
+					<col>
+					<col class=max>
+					<tr>
+						<th data-i18n=translation_request_method>
+						<td>
+							<label>
+								<input type=radio name=translation_method value=GET>GET
+							</label>
+							<label>
+								<input type=radio name=translation_method value=POST>POST
+							</label>
+					<tr>
+						<th>
+							<label for=translation_url data-i18n=translation_request_url></label>
+						<td>
+							<div class=flex style="align-items:center;">
+								<input type=url id=translation_url name=translation_url required>
+								<button type=button id=btn-reset-translation data-i18n=init></button>
+							</div>
+					<tr data-when-method=POST>
+						<th data-i18n=translation_request_bodyType>
+						<td>
+							<label>
+								<input type=radio name=translation_bodyType value=OpenAI>
+								<span data-i18n=translation_request_bodyType_OpenAICompatible></span>
+							</label>
+							<label>
+								<input type=radio name=translation_bodyType value=custom>
+								<span data-i18n=translation_request_bodyType_custom></span>
+							</label>
+					<tr data-when-method=POST>
+						<th>
+							<label for=translation_apiKey data-i18n=translation_request_apiKey></label>
+						<td>
+							<input id=translation_apiKey name=translation_apiKey>
+					<tr data-when-method=POST>
+						<th>
+							<label for=translation_modelName data-i18n=translation_request_modelName></label>
+						<td>
+							<input id=translation_modelName name=translation_modelName>
+				</table>
+				<textarea name=translation_bodyContent rows=10 data-when-method=POST data-i18n-placeholder=translation_request_body></textarea>
+			<dt data-i18n=translation_response>
+			<dd>
+				<table>
+					<col>
+					<col class=max>
+					<tr>
+						<th data-i18n=translation_response_style>
+						<td>
+							<label>
+								<input type=radio name=translation_responseStyle value=Google>
+								<span data-i18n=translation_response_style_Google></span>
+							</label>
+							<label>
+								<input type=radio name=translation_responseStyle value=OpenAI>
+								<span data-i18n=translation_response_style_OpenAI></span>
+							</label>
+				</table>
 		</dl>
+		<div>
+			<div class=flex>
+				<input type=search name=test_translation_text form=translation_test data-i18n-placeholder=placeholder_test_translation_text>
+				<button id=btn-test-translation form=translation_test data-i18n=test_translation></button>
+			</div>
+			<pre><output name=test_translation_output form=translation_test></output></pre>
+		</div>
 	</section>
 	<section>
 		<button class=primary id=btn-save disabled data-i18n=save></button>
-		<div><small id=status hidden data-i18n=warn_notSaved></small></div>
+		<div><small id=status hidden data-i18n=warning_whenNotSaved></small></div>
 	</section>
 </form>
+<form id=translation_test></form>
 <script src=options.js type=module></script>

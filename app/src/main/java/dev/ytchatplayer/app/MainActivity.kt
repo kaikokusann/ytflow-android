@@ -1,30 +1,25 @@
 package dev.ytchatplayer.app
 
 import android.Manifest
-import android.app.Activity
 import android.app.Dialog
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.PictureInPictureParams
 import android.app.RemoteAction
-import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.ServiceConnection
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Icon
-import android.media.MediaMetadata
-import android.media.session.MediaSession
-import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Bundle
+import android.os.IBinder
 import android.text.TextUtils
 import android.util.Rational
 import android.util.Log
@@ -34,6 +29,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
+import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -44,11 +40,16 @@ import androidx.core.widget.NestedScrollView
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.card.MaterialCardView
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.appcompat.widget.ListPopupWindow
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.radiobutton.MaterialRadioButton
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.shape.MaterialShapeDrawable
+import com.google.android.material.shape.ShapeAppearanceModel
 import org.mozilla.geckoview.GeckoRuntime
-import org.mozilla.geckoview.GeckoRuntimeSettings
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoSessionSettings
 import org.mozilla.geckoview.GeckoView
@@ -59,13 +60,44 @@ import android.content.DialogInterface
 import java.net.URLEncoder
 import org.mozilla.geckoview.AllowOrDeny
 
-class MainActivity : Activity() {
+class MainActivity : AppCompatActivity() {
+    private lateinit var playback: PlaybackService
+    private var serviceBound = false
+    private var restoringActivity = false
+    private val playbackConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+            playback = (binder as PlaybackService.LocalBinder).service
+            playback.applyBrowserAppearance()
+            createBrowser()
+            playback.onPlaybackChanged = {
+                if (inPictureInPicture) setPictureInPictureParams(createPictureInPictureParams())
+            }
+            installBuiltInExtensions()
+            val retainedUrl = playback.videoUrl
+            if ((intent.data == null || restoringActivity) && retainedUrl != null) {
+                videoUrl = retainedUrl
+                videoCanGoBack = playback.canGoBack
+                videoCanGoForward = playback.canGoForward
+                loadUrlInto(BrowserSurface.MOBILE, HOME_URL)
+                switchToSurface(BrowserSurface.VIDEO)
+            } else {
+                loadInitialUrl(intent)
+                if (activeSurface != BrowserSurface.MOBILE) {
+                    loadUrlInto(BrowserSurface.MOBILE, HOME_URL)
+                }
+            }
+            setBrowserControlsEnabled(true)
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) = Unit
+    }
     private lateinit var runtime: GeckoRuntime
     private lateinit var mobileSession: GeckoSession
     private lateinit var videoSession: GeckoSession
     private lateinit var chatSession: GeckoSession
     private lateinit var geckoView: GeckoView
     private lateinit var topBar: LinearLayout
+    private lateinit var addressBar: LinearLayout
     private lateinit var navBar: LinearLayout
     private lateinit var chatOnlyBar: LinearLayout
     private lateinit var address: EditText
@@ -78,6 +110,10 @@ class MainActivity : Activity() {
     private lateinit var btnNormalChatIcon: Button
     private var activeSettingsDialog: BottomSheetDialog? = null
     private var activeSettingsScrollView: NestedScrollView? = null
+    private var activeSettingsChoicePopup: ListPopupWindow? = null
+    private var refreshSettingsContent: (() -> Unit)? = null
+    private var activeExtensionDialog: Dialog? = null
+    private var lastNightMode = Configuration.UI_MODE_NIGHT_UNDEFINED
 
     private var yccExtension: WebExtension? = null
     private var lcfExtension: WebExtension? = null
@@ -86,7 +122,6 @@ class MainActivity : Activity() {
     private var mobileUrl: String = HOME_URL
     private var videoUrl: String = TEST_URL
     private var chatUrl: String = ""
-    private var videoTitle: String? = null
     private var mobileMode = BrowserMode.MOBILE
     private var videoMode = BrowserMode.DESKTOP
     private var chatMode = BrowserMode.DESKTOP
@@ -94,18 +129,17 @@ class MainActivity : Activity() {
     private var mobileCanGoForward = false
     private var videoCanGoBack = false
     private var videoCanGoForward = false
-    private var chatCanGoBack = false
     private var chatCanGoForward = false
     private var chatSessionOpen = false
-    private val videoHistory = mutableListOf<String>()
+    private val videoHistory get() = playback.videoHistory
     private var fullScreen = false
     private var inPictureInPicture = false
-    private var pipPlaybackPaused = false
-    private var mediaNotificationVisible = false
-    private var mediaSession: MediaSession? = null
-    private lateinit var notificationManager: NotificationManager
+    private var pipDismissPending = false
+    private var activityStarted = false
+    private val videoPlaybackPaused get() = !::playback.isInitialized || playback.paused
     private var youtubeChatCleanerEnabled = true
     private var liveChatFlusherEnabled = true
+    private var dvrChanEnabled = true
     private var chatOnlyModeEnabled = false
     private var pausePlaybackOnPipClose = true
     private var suppressFailedPageStopUntil = 0L
@@ -118,15 +152,16 @@ class MainActivity : Activity() {
     private var normalChatShowIcon = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AppCompatDelegate.setDefaultNightMode(AppAppearance.read(this).nightMode)
         super.onCreate(savedInstanceState)
-        currentActivity = this
+        lastNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        restoringActivity = savedInstanceState != null
         prefs = getSharedPreferences("debug_toggles", MODE_PRIVATE)
-        createMediaNotificationSupport()
         requestNotificationPermissionIfNeeded()
         youtubeChatCleanerEnabled = prefs.getBoolean(PREF_YCC_ENABLED, true)
         liveChatFlusherEnabled = prefs.getBoolean(PREF_LCF_ENABLED, true)
+        dvrChanEnabled = prefs.getBoolean(PREF_DVR_ENABLED, true)
         chatOnlyModeEnabled = false
-        prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, false).apply()
         pausePlaybackOnPipClose = prefs.getBoolean(PREF_PAUSE_ON_PIP_CLOSE, true)
         currentOsFps = prefs.getInt(PREF_FPS_LIMIT, 0)
         lcfDanmakuFontSizePx = normalizeLcfDanmakuFontSize(
@@ -143,68 +178,70 @@ class MainActivity : Activity() {
         normalChatShowIcon = prefs.getBoolean(PREF_NORMAL_CHAT_SHOW_ICON, true)
         applyEffectiveOsFps(showToast = false)
         setContentView(createUi())
-        createBrowser()
-        installBuiltInExtensions()
-        loadInitialUrl(intent)
+        updateChromeAppearance()
+        setBrowserControlsEnabled(false)
+        serviceBound = bindService(Intent(this, PlaybackService::class.java), playbackConnection, BIND_AUTO_CREATE)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        when (intent.action) {
-            ACTION_PIP_TOGGLE_PLAYBACK -> {
-                handlePipPlaybackAction()
-                return
-            }
-            ACTION_PIP_CLOSE -> {
-                handlePipCloseAction()
-                return
-            }
-        }
-        loadInitialUrl(intent)
+        restoringActivity = false
+        if (::playback.isInitialized && intent.data != null) loadInitialUrl(intent)
     }
 
     override fun onDestroy() {
-        if (currentActivity === this) currentActivity = null
-        hideMediaNotification()
-        mediaSession?.release()
-        mediaSession = null
+        activeSettingsDialog?.dismiss()
+        activeExtensionDialog?.dismiss()
+        if (::playback.isInitialized) {
+            playback.detachUi()
+            geckoView.releaseSession()
+        }
         if (::runtime.isInitialized) {
             if (::mobileSession.isInitialized) {
                 runCatching { runtime.webExtensionController.setTabActive(mobileSession, false) }
                 runCatching { mobileSession.close() }
             }
-            if (::videoSession.isInitialized) {
-                runCatching { runtime.webExtensionController.setTabActive(videoSession, false) }
-                runCatching { videoSession.close() }
-            }
             if (::chatSession.isInitialized && chatSessionOpen) {
                 runCatching { runtime.webExtensionController.setTabActive(chatSession, false) }
                 runCatching { chatSession.close() }
             }
-            runtime.shutdown()
         }
+        if (serviceBound) unbindService(playbackConnection)
         super.onDestroy()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        activityStarted = true
     }
 
     override fun onResume() {
         super.onResume()
+        pipDismissPending = false
+        if (!isInPictureInPictureMode) {
+            activeSettingsDialog?.show()
+            activeExtensionDialog?.show()
+        }
         if (::geckoView.isInitialized) {
             geckoView.requestFocus()
         }
         // Force sync states upon resume to recover from suspended JavaScript state
-        setPageAppFullScreenFlag(fullScreen)
+        if (::mobileSession.isInitialized) setPageAppFullScreenFlag(fullScreen)
         setPageAppPictureInPictureFlag(inPictureInPicture)
         updateKeepScreenOn()
     }
 
-    override fun onPause() {
-        super.onPause()
+    override fun onStop() {
+        super.onStop()
+        activityStarted = false
+        pauseAfterPipDismissal()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
+            updateSystemBarAppearance(window)
             if (fullScreen) {
                 window.decorView.systemUiVisibility = (
                     View.SYSTEM_UI_FLAG_FULLSCREEN or
@@ -214,11 +251,6 @@ class MainActivity : Activity() {
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                     View.SYSTEM_UI_FLAG_LAYOUT_STABLE
                 )
-            }
-            // Force a resize event to ensure video player layout recovers from PiP or SystemUI interruptions
-            if (::videoSession.isInitialized && activeSurface == BrowserSurface.VIDEO) {
-                val script = "window.dispatchEvent(new Event('resize'));"
-                videoSession.loadUri("javascript:${Uri.encode(script)}")
             }
         }
     }
@@ -245,13 +277,39 @@ class MainActivity : Activity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         inPictureInPicture = isInPictureInPictureMode
+        videoSession.compositorController.onPipModeChanged(isInPictureInPictureMode)
+        if (isInPictureInPictureMode) pipDismissPending = true
+        if (isInPictureInPictureMode) {
+            activeSettingsChoicePopup?.dismiss()
+            activeSettingsDialog?.hide()
+            activeExtensionDialog?.hide()
+        }
+        pauseAfterPipDismissal()
         setPageAppPictureInPictureFlag(isInPictureInPictureMode)
         if (isInPictureInPictureMode) showOrUpdateMediaNotification()
         updateChromeForPictureInPicture()
     }
 
+    private fun pauseAfterPipDismissal() {
+        // onStop and the PiP callback can arrive in either order.
+        if (!pipDismissPending || activityStarted || inPictureInPicture) return
+        pipDismissPending = false
+        if (pausePlaybackOnPipClose) requestVideoPlaybackPaused(true)
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        activeSettingsChoicePopup?.dismiss()
+        val nightMode = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        if (nightMode != lastNightMode) {
+            lastNightMode = nightMode
+            theme.rebase()
+            theme.applyStyle(R.style.AppTheme, true)
+            if (::topBar.isInitialized) updateChromeAppearance()
+            refreshSettingsContent?.invoke()
+            if (::playback.isInitialized) playback.applyBrowserAppearance()
+        }
+        activeExtensionDialog?.let { configureExtensionDialog(it) }
         activeSettingsDialog?.let { dialog ->
             activeSettingsScrollView?.post {
                 if (activeSettingsDialog === dialog) configureSettingsBottomSheet(dialog)
@@ -259,39 +317,61 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun createMediaNotificationSupport() {
-        notificationManager = getSystemService(NotificationManager::class.java)
-        val channel = NotificationChannel(
-            MEDIA_CHANNEL_ID,
-            "メディア再生",
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply {
-            description = "YouTube再生中の操作"
-            setShowBadge(false)
-        }
-        notificationManager.createNotificationChannel(channel)
-        mediaSession = MediaSession(this, "YTChat").apply {
-            setCallback(object : MediaSession.Callback() {
-                override fun onPlay() {
-                    setVideoPlaybackPaused(false)
-                }
-
-                override fun onPause() {
-                    setVideoPlaybackPaused(true)
-                }
-
-                override fun onStop() {
-                    setVideoPlaybackPaused(true)
-                }
-            })
-            isActive = true
-        }
-        updateMediaSessionState()
-    }
 
     private fun requestNotificationPermissionIfNeeded() {
         if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
         requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_POST_NOTIFICATIONS)
+    }
+
+    private fun setBrowserControlsEnabled(enabled: Boolean) {
+        fun setEnabled(view: View) {
+            view.isEnabled = enabled
+            if (view is ViewGroup) for (i in 0 until view.childCount) setEnabled(view.getChildAt(i))
+        }
+        setEnabled(topBar)
+        setEnabled(navBar)
+    }
+
+    private fun themeColor(context: Context, attribute: Int): Int =
+        MaterialColors.getColor(context, attribute, "YTFlow")
+
+    private fun updateChromeAppearance() {
+        val surface = themeColor(this, com.google.android.material.R.attr.colorSurface)
+        val container = themeColor(this, com.google.android.material.R.attr.colorSurfaceContainer)
+        val text = themeColor(this, com.google.android.material.R.attr.colorOnSurface)
+        val secondary = themeColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant)
+        (topBar.parent as View).setBackgroundColor(surface)
+        for (bar in listOf(topBar, navBar, chatOnlyBar)) bar.setBackgroundColor(surface)
+        addressBar.background = roundedDrawable(container, 24,
+            themeColor(this, com.google.android.material.R.attr.colorOutlineVariant), 1)
+        address.setTextColor(text)
+        address.setHintTextColor(secondary)
+        status.setBackgroundColor(surface)
+        status.setTextColor(secondary)
+        fun recolorButtons(view: View) {
+            when (view) {
+                is ImageButton -> {
+                    view.setColorFilter(text)
+                    view.applyModernRipple(8, container)
+                }
+                is Button -> {
+                    view.setTextColor(text)
+                    view.applyModernRipple(8, container)
+                }
+                is ViewGroup -> for (index in 0 until view.childCount) recolorButtons(view.getChildAt(index))
+            }
+        }
+        listOf(topBar, navBar, chatOnlyBar).forEach { recolorButtons(it) }
+        updateNormalChatControls()
+        updateSystemBarAppearance(window)
+    }
+
+    private fun updateSystemBarAppearance(target: android.view.Window) {
+        val light = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK != Configuration.UI_MODE_NIGHT_YES
+        androidx.core.view.WindowCompat.getInsetsController(target, target.decorView).apply {
+            isAppearanceLightStatusBars = light
+            isAppearanceLightNavigationBars = light
+        }
     }
 
     private fun createUi(): View {
@@ -306,7 +386,7 @@ class MainActivity : Activity() {
             setPadding(dp(8), statusBarHeight() + dp(7), dp(8), dp(7))
             setBackgroundColor(BLACK)
         }
-        val addressBar = LinearLayout(this).apply {
+        addressBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = roundedDrawable(
@@ -382,7 +462,6 @@ class MainActivity : Activity() {
         root.addView(topBar, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
 
         geckoView = GeckoView(this)
-        geckoView.setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW)
         root.addView(
             geckoView,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f),
@@ -508,165 +587,183 @@ class MainActivity : Activity() {
         return root
     }
 
-    private fun showSettingsMenu() {
+    private fun showSettingsMenu() = showSettingsSheet("アプリの設定") { context, content, dialog ->
+        content.addView(settingsSection(context, "外観"))
+        content.addView(settingTextColumn(context, "表示テーマ", ""))
+        content.addView(com.google.android.material.button.MaterialButtonToggleGroup(context).apply {
+            isSingleSelection = true
+            isSelectionRequired = true
+            val selected = AppAppearance.read(this@MainActivity)
+            AppAppearance.entries.forEach { appearance ->
+                addView(MaterialButton(context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                    id = View.generateViewId()
+                    text = appearance.label
+                    textSize = 14f
+                    cornerRadius = dp(8)
+                    strokeWidth = 0
+                    backgroundTintList = ColorStateList(
+                        arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                        intArrayOf(context.getColor(R.color.settings_accent), context.getColor(R.color.settings_card_background)))
+                    setTextColor(ColorStateList(
+                        arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                        intArrayOf(Color.WHITE, context.getColor(R.color.settings_text_primary))))
+                    minimumWidth = 0
+                    minWidth = 0
+                    insetTop = 0
+                    insetBottom = 0
+                    setPadding(dp(4), 0, dp(4), 0)
+                    tag = appearance
+                }, LinearLayout.LayoutParams(0, dp(48), 1f))
+            }
+            check((0 until childCount).map { getChildAt(it) }.first { it.tag == selected }.id)
+            addOnButtonCheckedListener { group, checkedId, checked ->
+                if (checked) {
+                    val appearance = group.findViewById<View>(checkedId).tag as AppAppearance
+                    AppAppearance.save(this@MainActivity, appearance)
+                    if (::playback.isInitialized) playback.applyBrowserAppearance()
+                    AppCompatDelegate.setDefaultNightMode(appearance.nightMode)
+                }
+            }
+        }, LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6); bottomMargin = dp(16) })
+
+        content.addView(settingsSection(context, "拡張機能"))
+        content.addView(settingsSwitchRow(context, "YT Chat Cleaner", "名前・アイコン・チャット幅",
+            youtubeChatCleanerEnabled,
+            onSettings = {
+                dialog.dismiss()
+                showExtensionPopup(yccExtension, "popup.html", "YT Chat Cleaner", reloadAfterSave = false)
+            },
+            onCheckedChange = { setPageFlag(PREF_YCC_ENABLED, "YouTubeChatCleaner", it) }))
+        content.addView(settingsSwitchRow(context, "LiveChat Flusher", "読み込み方法・自動オープン",
+            liveChatFlusherEnabled,
+            onSettings = {
+                dialog.dismiss()
+                showExtensionPopup(lcfExtension, "options/options.html", "LiveChat Flusher", reloadAfterSave = true)
+            },
+            onCheckedChange = { setPageFlag(PREF_LCF_ENABLED, "LiveChat Flusher", it) }))
+        content.addView(settingsSwitchRow(context, "DVR-chan", "ライブ配信の巻き戻し",
+            dvrChanEnabled, onCheckedChange = { setPageFlag(PREF_DVR_ENABLED, "DVR-chan", it) }))
+
+        content.addView(settingsSection(context, "再生とチャット"))
+        content.addView(settingsChoiceRow(context, "弾幕文字サイズ",
+            LCF_DANMAKU_FONT_SIZES_PX.map { "${it}px" }, LCF_DANMAKU_FONT_SIZES_PX.indexOf(lcfDanmakuFontSizePx)) {
+            setLcfDanmakuFontSize(LCF_DANMAKU_FONT_SIZES_PX[it])
+        })
+        content.addView(settingsSwitchRow(context, "弾幕アイコン", "",
+            lcfDanmakuShowIcon, onCheckedChange = { setLcfDanmakuShowIcon(it) }))
+        content.addView(settingsSwitchRow(context, "通常チャット専用モード", "",
+            chatOnlyModeEnabled, isEnabled = activeSurface == BrowserSurface.VIDEO,
+            onCheckedChange = {
+                setChatOnlyMode(it)
+                if (it) dialog.dismiss()
+            }))
+        content.addView(settingsSwitchRow(context, "PiPを閉じたら一時停止", "",
+            pausePlaybackOnPipClose, onCheckedChange = {
+                pausePlaybackOnPipClose = it
+                prefs.edit().putBoolean(PREF_PAUSE_ON_PIP_CLOSE, it).apply()
+            }))
+        val fpsValues = intArrayOf(0, 120, 60, 30, 15)
+        content.addView(settingsChoiceRow(context, "フレームレート",
+            listOf("制限なし", "120fps", "60fps", "30fps", "15fps"), fpsValues.indexOf(currentOsFps)) {
+            currentOsFps = fpsValues[it]
+            prefs.edit().putInt(PREF_FPS_LIMIT, currentOsFps).apply()
+            applyEffectiveOsFps(showToast = true)
+        })
+
+        val packageInfo = packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+        val extensionVersions = listOf(
+            "LiveChat Flusher" to "live_chat_flusher",
+            "YT Chat Cleaner" to "youtube_chat_cleaner",
+            "DVR-chan" to "dvr_chan",
+        ).map { (name, folder) ->
+            val manifest = assets.open("extensions/$folder/manifest.json").bufferedReader().use { it.readText() }
+            "$name  ${org.json.JSONObject(manifest).getString("version")}"
+        }
+        content.addView(settingTextColumn(context, "バージョン情報",
+            (listOf("YTFlow  ${packageInfo.versionName} (${packageInfo.longVersionCode})") + extensionVersions).joinToString("\n"),
+        ).apply { setPadding(0, dp(24), 0, dp(8)) })
+    }
+
+    private fun showSettingsSheet(
+        title: String,
+        fillContent: (Context, LinearLayout, BottomSheetDialog) -> Unit,
+    ) {
         val dialog = BottomSheetDialog(this, R.style.YTFlowSettingsBottomSheetDialog)
         val context = dialog.context
-        val sheetRoot = LinearLayout(context).apply {
+        val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(10), dp(20), 0)
+            setPadding(dp(20), dp(8), dp(20), 0)
         }
-
-        sheetRoot.addView(View(context).apply {
-            background = roundedDrawable(Color.parseColor("#5E5E5E"), 2)
-        }, LinearLayout.LayoutParams(dp(44), dp(4)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            bottomMargin = dp(16)
-        })
-
-        val header = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val headerText = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-        headerText.addView(TextView(context).apply {
-            text = "アプリの設定"
-            textSize = 22f
-            setTextColor(Color.parseColor("#F5F5F5"))
-            includeFontPadding = false
-        })
-        headerText.addView(TextView(context).apply {
-            text = "拡張機能と再生まわりの設定"
-            textSize = 12f
-            setTextColor(Color.parseColor("#A8A8A8"))
-        })
-        header.addView(headerText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        header.addView(MaterialButton(context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "閉じる"
-            minHeight = dp(36)
-            minimumHeight = dp(36)
-            setOnClickListener { dialog.dismiss() }
-        })
-        sheetRoot.addView(header)
-
-        val content = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(24))
-        }
-
-        content.addView(materialSwitchCard(
-            context = context,
-            title = "YT Chat Cleaner",
-            summary = "名前、アイコン、チャット幅などを調整",
-            isChecked = youtubeChatCleanerEnabled,
-            onCheckedChange = { checked -> setPageFlag(PREF_YCC_ENABLED, "YouTubeChatCleaner", checked) },
-            actionLabel = "設定",
-            onActionClick = {
-                dialog.dismiss()
-                showExtensionPopup(yccExtension, "popup.html", "YouTubeChatCleaner", showSaveButton = false, reloadAfterSave = false)
-            }
-        ))
-
-        content.addView(materialSwitchCard(
-            context = context,
-            title = "LiveChat Flusher",
-            summary = "読み込み方式・自動オープンなどを調整",
-            isChecked = liveChatFlusherEnabled,
-            onCheckedChange = { checked -> setPageFlag(PREF_LCF_ENABLED, "LiveChat Flusher", checked) },
-            actionLabel = "設定",
-            onActionClick = {
-                dialog.dismiss()
-                showExtensionPopup(lcfExtension, "options/options.html", "LiveChat Flusher", showSaveButton = true, reloadAfterSave = true)
-            }
-        ))
-
-        content.addView(materialActionCard(
-            context = context,
-            title = "弾幕文字サイズ",
-            summary = "現在: ${lcfDanmakuFontSizePx}px",
-            actionLabel = "変更",
-            onClick = {
-                dialog.dismiss()
-                showLcfDanmakuFontSizeDialog()
-            }
-        ))
-
-        content.addView(materialSwitchCard(
-            context = context,
-            title = "弾幕アイコン",
-            summary = "弾幕にユーザーアイコンを表示",
-            isChecked = lcfDanmakuShowIcon,
-            onCheckedChange = { checked -> setLcfDanmakuShowIcon(checked) },
-        ))
-
-        content.addView(materialSwitchCard(
-            context = context,
-            title = "通常チャット専用モード",
-            summary = "動画ページでチャットだけを大きく表示",
-            isChecked = chatOnlyModeEnabled,
-            isEnabled = activeSurface == BrowserSurface.VIDEO,
-            onCheckedChange = { checked ->
-                setChatOnlyMode(checked)
-                if (checked) dialog.dismiss()
-            },
-        ))
-
-        content.addView(materialSwitchCard(
-            context = context,
-            title = "PiPを×で閉じたら一時停止",
-            summary = "PiPを閉じる操作で動画も停止",
-            isChecked = pausePlaybackOnPipClose,
-            onCheckedChange = { checked ->
-                pausePlaybackOnPipClose = checked
-                prefs.edit().putBoolean(PREF_PAUSE_ON_PIP_CLOSE, checked).apply()
-                status.text = "PiP終了時の一時停止: ${if (checked) "ON" else "OFF"}"
-            },
-        ))
-
-        content.addView(materialActionCard(
-            context = context,
-            title = "FPS制限機能",
-            summary = "現在: ${if (currentOsFps > 0) "${currentOsFps}fps" else "自動"}",
-            actionLabel = "変更",
-            onClick = {
-                dialog.dismiss()
-                showOsFpsDialog()
-            }
-        ))
-        content.addView(View(context), LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(20)))
-
         val scrollView = NestedScrollView(context).apply {
             isFillViewport = true
             clipToPadding = false
-            isNestedScrollingEnabled = true
-            addView(content)
         }
-        sheetRoot.addView(scrollView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        dialog.setContentView(sheetRoot)
+        fun render() {
+            val scrollY = scrollView.scrollY
+            context.theme.rebase()
+            context.theme.applyStyle(R.style.YTFlowSettingsBottomSheetDialog, true)
+            root.removeAllViews()
+            root.addView(View(context).apply {
+                background = roundedDrawable(themeColor(context, com.google.android.material.R.attr.colorOutline), 2)
+            }, LinearLayout.LayoutParams(dp(32), dp(4)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(8)
+            })
+            val header = LinearLayout(context).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(context).apply {
+                    text = title
+                    textSize = 22f
+                    gravity = Gravity.CENTER_VERTICAL
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setTextColor(themeColor(context, com.google.android.material.R.attr.colorOnSurface))
+                }, LinearLayout.LayoutParams(0, dp(56), 1f))
+                addView(settingsIconButton(context, "閉じる", R.drawable.ic_close) { dialog.dismiss() },
+                    LinearLayout.LayoutParams(dp(48), dp(48)))
+            }
+            root.addView(header)
+            val content = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, 0, 0, dp(24))
+            }
+            fillContent(context, content, dialog)
+            scrollView.removeAllViews()
+            scrollView.addView(content)
+            root.addView(scrollView, LinearLayout.LayoutParams(-1, 0, 1f))
+            scrollView.post { scrollView.scrollTo(0, scrollY) }
+            dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.backgroundTintList =
+                ColorStateList.valueOf(themeColor(context, com.google.android.material.R.attr.colorSurface))
+        }
+        render()
+        dialog.setContentView(root)
         dialog.setOnShowListener {
             activeSettingsDialog = dialog
             activeSettingsScrollView = scrollView
+            refreshSettingsContent = { render() }
             configureSettingsBottomSheet(dialog)
         }
         dialog.setOnDismissListener {
             if (activeSettingsDialog === dialog) {
+                activeSettingsChoicePopup?.dismiss()
                 activeSettingsDialog = null
                 activeSettingsScrollView = null
+                refreshSettingsContent = null
             }
         }
         dialog.show()
     }
 
     private fun configureSettingsBottomSheet(dialog: BottomSheetDialog) {
-        val metrics = resources.displayMetrics
-        val availableHeight = metrics.heightPixels - statusBarHeight() - dp(12)
-        val preferredRatio = if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 0.92f else 0.82f
-        val preferredHeight = (metrics.heightPixels * preferredRatio).toInt()
-        val targetHeight = minOf(availableHeight, maxOf(dp(420), preferredHeight))
+        dialog.window?.let { updateSystemBarAppearance(it) }
+        val metrics = windowManager.currentWindowMetrics
+        val insets = metrics.windowInsets.getInsets(
+            android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
+        val width = metrics.bounds.width() - insets.left - insets.right
+        val height = metrics.bounds.height() - insets.top - insets.bottom
+        dialog.behavior.maxWidth = minOf(width, dp(600))
         dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.let { sheet ->
             sheet.layoutParams = sheet.layoutParams.apply {
-                height = targetHeight
+                this.height = (height * if (width > height) 0.94f else 0.88f).toInt()
             }
             sheet.requestLayout()
         }
@@ -675,376 +772,179 @@ class MainActivity : Activity() {
         dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
     }
 
-    private fun materialSwitchCard(
+    private fun settingsSection(context: Context, title: String) = TextView(context).apply {
+        text = title
+        textSize = 13f
+        setTextColor(themeColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant))
+        setTypeface(null, android.graphics.Typeface.BOLD)
+        setPadding(0, dp(14), 0, dp(8))
+    }
+
+    private fun settingsRow(context: Context) = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(48)
+        setPadding(0, dp(4), 0, dp(4))
+    }
+
+    private fun settingsDivider(context: Context, row: View): LinearLayout =
+        LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(row, LinearLayout.LayoutParams(-1, -2))
+            addView(View(context).apply {
+                setBackgroundColor(themeColor(context, com.google.android.material.R.attr.colorOutlineVariant))
+            }, LinearLayout.LayoutParams(-1, dp(1)))
+        }
+
+    private fun settingsSwitchRow(
         context: Context,
         title: String,
         summary: String,
-        isChecked: Boolean,
+        checked: Boolean,
         isEnabled: Boolean = true,
-        actionLabel: String? = null,
-        onActionClick: (() -> Unit)? = null,
+        onSettings: (() -> Unit)? = null,
         onCheckedChange: (Boolean) -> Unit,
-    ): MaterialCardView =
-        settingsCard(context, isEnabled).apply {
-            val content = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(16), dp(14), dp(16), dp(14))
-            }
-            val row = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            val textColumn = settingTextColumn(context, title, summary)
-            val switch = MaterialSwitch(context).apply {
-                this.isEnabled = isEnabled
-                this.isChecked = isChecked
-                setOnCheckedChangeListener { _, checked -> onCheckedChange(checked) }
-            }
-            row.addView(textColumn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(switch)
-            content.addView(row)
-
-            if (actionLabel != null && onActionClick != null) {
-                content.addView(MaterialButton(context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                    text = actionLabel
-                    minHeight = dp(38)
-                    minimumHeight = dp(38)
-                    setOnClickListener { onActionClick() }
-                }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = dp(10)
-                    gravity = Gravity.END
-                })
-            }
-            addView(content)
-            if (isEnabled) {
-                setOnClickListener { switch.isChecked = !switch.isChecked }
-            }
+    ): View {
+        val row = settingsRow(context)
+        if (summary.isNotEmpty()) row.minimumHeight = dp(64)
+        val switch = MaterialSwitch(context).apply {
+            this.isEnabled = isEnabled
+            isChecked = checked
+            contentDescription = title
+            minimumHeight = dp(48)
+            thumbTintList = ColorStateList.valueOf(Color.WHITE)
+            trackTintList = ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
+                intArrayOf(context.getColor(R.color.settings_accent), context.getColor(R.color.settings_switch_off)))
+            trackDecorationTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+            setOnCheckedChangeListener { _, value -> onCheckedChange(value) }
         }
+        row.addView(settingTextColumn(context, title, summary),
+            LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
+        if (onSettings != null) {
+            row.addView(settingsIconButton(context, "$title の設定", R.drawable.ic_settings_outline, onSettings),
+                LinearLayout.LayoutParams(dp(48), dp(48)))
+        }
+        row.addView(switch, LinearLayout.LayoutParams(-2, dp(48)))
+        row.alpha = if (isEnabled) 1f else 0.45f
+        row.setOnClickListener { if (isEnabled) switch.isChecked = !switch.isChecked }
+        return settingsDivider(context, row)
+    }
 
-    private fun materialActionCard(
+    private fun settingsChoiceRow(
         context: Context,
         title: String,
-        summary: String,
-        actionLabel: String,
-        onClick: () -> Unit,
-    ): MaterialCardView =
-        settingsCard(context, true).apply {
-            val row = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(16), dp(14), dp(16), dp(14))
+        labels: List<String>,
+        selected: Int,
+        onSelected: (Int) -> Unit,
+    ): View {
+        val row = settingsRow(context)
+        row.addView(settingTextColumn(context, title, ""), LinearLayout.LayoutParams(0, -2, 1f))
+        var selectedIndex = selected.coerceIn(labels.indices)
+        val value = TextView(context).apply {
+            text = labels[selectedIndex]
+            textSize = 14f
+            setTextColor(themeColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant))
+        }
+        val choiceControl = LinearLayout(context).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+            addView(value)
+        }
+        fun showChoices() {
+            activeSettingsChoicePopup?.dismiss()
+            val popup = ListPopupWindow(context).apply {
+                anchorView = choiceControl
+                setDropDownGravity(Gravity.END)
+                width = minOf(row.width, dp(240))
+                isModal = true
+                inputMethodMode = ListPopupWindow.INPUT_METHOD_NOT_NEEDED
+                setAdapter(ArrayAdapter(context, android.R.layout.simple_list_item_single_choice, labels))
+                setOnItemClickListener { _, _, index, _ ->
+                    onSelected(index)
+                    selectedIndex = index
+                    value.text = labels[index]
+                    dismiss()
+                }
             }
-            row.addView(settingTextColumn(context, title, summary), LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(MaterialButton(context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-                text = actionLabel
-                minHeight = dp(38)
-                minimumHeight = dp(38)
-                setOnClickListener { onClick() }
-            })
-            addView(row)
-            setOnClickListener { onClick() }
+            popup.setOnDismissListener {
+                if (activeSettingsChoicePopup === popup) activeSettingsChoicePopup = null
+            }
+            activeSettingsChoicePopup = popup
+            popup.show()
+            popup.listView?.apply {
+                choiceMode = android.widget.ListView.CHOICE_MODE_SINGLE
+                setItemChecked(selectedIndex, true)
+                setSelection(selectedIndex)
+            }
+        }
+        choiceControl.addView(settingsIconButton(context, "$title を変更", R.drawable.ic_expand_more) { showChoices() },
+            LinearLayout.LayoutParams(dp(48), dp(48)))
+        choiceControl.setOnClickListener { showChoices() }
+        row.addView(choiceControl)
+        row.setOnClickListener { showChoices() }
+        return settingsDivider(context, row)
+    }
+
+    private fun settingsIconButton(context: Context, label: String, icon: Int, action: () -> Unit) =
+        androidx.appcompat.widget.AppCompatImageButton(context).apply {
+            contentDescription = label
+            tooltipText = label
+            setImageResource(icon)
+            imageTintList = ColorStateList.valueOf(themeColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant))
+            scaleType = ImageView.ScaleType.CENTER
+            setPadding(dp(12), dp(12), dp(12), dp(12))
+            val background = android.util.TypedValue()
+            context.theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, background, true)
+            setBackgroundResource(background.resourceId)
+            setOnClickListener { action() }
         }
 
-    private fun settingsCard(context: Context, isEnabled: Boolean): MaterialCardView =
-        MaterialCardView(context).apply {
-            radius = dp(22).toFloat()
-            setCardBackgroundColor(Color.parseColor("#222222"))
-            setStrokeColor(Color.parseColor("#343434"))
-            strokeWidth = dp(1)
-            alpha = if (isEnabled) 1f else 0.45f
-            useCompatPadding = false
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(12)
-            }
-        }
-
-    private fun settingTextColumn(context: Context, title: String, summary: String): LinearLayout =
+    private fun settingTextColumn(context: Context, title: String, summary: String) =
         LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             addView(TextView(context).apply {
                 text = title
                 textSize = 16f
-                setTextColor(Color.parseColor("#F5F5F5"))
-                includeFontPadding = false
+                typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
+                setTextColor(themeColor(context, com.google.android.material.R.attr.colorOnSurface))
             })
-            addView(TextView(context).apply {
+            if (summary.isNotEmpty()) addView(TextView(context).apply {
                 text = summary
                 textSize = 12f
-                setTextColor(Color.parseColor("#A8A8A8"))
-                setPadding(0, dp(5), dp(12), 0)
+                setTextColor(themeColor(context, com.google.android.material.R.attr.colorOnSurfaceVariant))
+                setPadding(0, dp(4), 0, 0)
             })
-    }
+        }
 
-    private fun showOsFpsDialog() {
-        val options = arrayOf("自動 (制限なし)", "120 fps", "60 fps", "30 fps", "15 fps")
-        val values = intArrayOf(0, 120, 60, 30, 15)
-        val dialog = BottomSheetDialog(this, R.style.YTFlowSettingsBottomSheetDialog)
-        val context = dialog.context
-        val controlTint = ColorStateList(
-            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-            intArrayOf(Color.parseColor("#FF0033"), Color.parseColor("#9A949D")),
-        )
-        val root = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(10), dp(20), dp(24))
-        }
-        root.addView(View(context).apply {
-            background = roundedDrawable(Color.parseColor("#5E5E5E"), 2)
-        }, LinearLayout.LayoutParams(dp(44), dp(4)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            bottomMargin = dp(18)
-        })
-        root.addView(TextView(context).apply {
-            text = "FPS制限機能"
-            textSize = 22f
-            setTextColor(Color.parseColor("#F5F5F5"))
-            includeFontPadding = false
-        })
-        root.addView(TextView(context).apply {
-            text = "画面の滑らかさを制限して負担を軽くします。"
-            textSize = 12f
-            setTextColor(Color.parseColor("#A8A8A8"))
-            setPadding(0, dp(6), 0, dp(12))
-        })
-        options.forEachIndexed { index, label ->
-            root.addView(MaterialRadioButton(context).apply {
-                text = label
-                textSize = 16f
-                setTextColor(Color.parseColor("#F5F5F5"))
-                buttonTintList = controlTint
-                isChecked = values[index] == currentOsFps
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, 0, 0, 0)
-                setOnClickListener {
-                    currentOsFps = values[index]
-                    prefs.edit().putInt(PREF_FPS_LIMIT, currentOsFps).apply()
-                    applyEffectiveOsFps(showToast = true)
-                    dialog.dismiss()
-                }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)))
-        }
-        root.addView(MaterialButton(context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "キャンセル"
-            minHeight = dp(40)
-            minimumHeight = dp(40)
-            setOnClickListener { dialog.dismiss() }
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-            gravity = Gravity.END
-        })
-
-        dialog.setContentView(root)
-        dialog.setOnShowListener {
-            dialog.behavior.skipCollapsed = true
-            dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        }
-        dialog.show()
-    }
-
-    private fun showLcfDanmakuFontSizeDialog() {
-        val values = LCF_DANMAKU_FONT_SIZES_PX
-        val dialog = BottomSheetDialog(this, R.style.YTFlowSettingsBottomSheetDialog)
-        val context = dialog.context
-        val controlTint = ColorStateList(
-            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-            intArrayOf(Color.parseColor("#FF0033"), Color.parseColor("#9A949D")),
-        )
-        val root = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(10), dp(20), dp(24))
-        }
-        root.addView(View(context).apply {
-            background = roundedDrawable(Color.parseColor("#5E5E5E"), 2)
-        }, LinearLayout.LayoutParams(dp(44), dp(4)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            bottomMargin = dp(18)
-        })
-        root.addView(TextView(context).apply {
-            text = "弾幕文字サイズ"
-            textSize = 22f
-            setTextColor(Color.parseColor("#F5F5F5"))
-            includeFontPadding = false
-        })
-        root.addView(TextView(context).apply {
-            text = "動画上に流れる弾幕チャットの文字サイズを変更します。"
-            textSize = 12f
-            setTextColor(Color.parseColor("#A8A8A8"))
-            setPadding(0, dp(6), 0, dp(12))
-        })
-        values.forEach { value ->
-            root.addView(MaterialRadioButton(context).apply {
-                text = if (value == DEFAULT_LCF_DANMAKU_FONT_SIZE_PX) "標準 ${value}px" else "${value}px"
-                textSize = 16f
-                setTextColor(Color.parseColor("#F5F5F5"))
-                buttonTintList = controlTint
-                isChecked = value == lcfDanmakuFontSizePx
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, 0, 0, 0)
-                setOnClickListener {
-                    setLcfDanmakuFontSize(value)
-                    dialog.dismiss()
-                }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)))
-        }
-        root.addView(MaterialButton(context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "キャンセル"
-            minHeight = dp(40)
-            minimumHeight = dp(40)
-            setOnClickListener { dialog.dismiss() }
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-            gravity = Gravity.END
-        })
-
-        val scrollView = NestedScrollView(context).apply {
-            isFillViewport = true
-            clipToPadding = false
-            isNestedScrollingEnabled = true
-            addView(root)
-        }
-        dialog.setContentView(scrollView)
-        dialog.setOnShowListener {
-            val availableHeight = resources.displayMetrics.heightPixels - statusBarHeight() - dp(24)
-            val targetHeight = minOf(availableHeight, (resources.displayMetrics.heightPixels * 0.78f).toInt())
-            dialog.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.let { sheet ->
-                sheet.layoutParams = sheet.layoutParams.apply {
-                    height = targetHeight
-                }
-                sheet.requestLayout()
+    private fun showSettingsChoice(title: String, labels: List<String>, selected: Int, onSelected: (Int) -> Unit) =
+        showSettingsSheet(title) { context, content, dialog ->
+            labels.forEachIndexed { index, label ->
+                content.addView(MaterialRadioButton(context).apply {
+                    text = label
+                    textSize = 16f
+                    isChecked = index == selected
+                    setTextColor(themeColor(context, com.google.android.material.R.attr.colorOnSurface))
+                    setOnClickListener {
+                        onSelected(index)
+                        dialog.dismiss()
+                    }
+                }, LinearLayout.LayoutParams(-1, dp(52)))
             }
-            dialog.behavior.skipCollapsed = true
-            dialog.behavior.setDraggableOnNestedScroll(false)
-            dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
         }
-        dialog.show()
-    }
 
     private fun showNormalChatFontSizeDialog() {
-        val options = arrayOf("小さめ 100%", "標準 140%", "大きめ 180%", "かなり大きめ 220%", "特大 260%", "最大 300%")
         val values = NORMAL_CHAT_FONT_SCALES
-        val dialog = BottomSheetDialog(this, R.style.YTFlowSettingsBottomSheetDialog)
-        val context = dialog.context
-        val controlTint = ColorStateList(
-            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-            intArrayOf(Color.parseColor("#FF0033"), Color.parseColor("#9A949D")),
-        )
-        val root = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(10), dp(20), dp(24))
+        showSettingsChoice("通常チャット文字サイズ", values.map { "${it}%" }, values.indexOf(normalChatFontScale)) {
+            setNormalChatFontScale(values[it])
         }
-        root.addView(View(context).apply {
-            background = roundedDrawable(Color.parseColor("#5E5E5E"), 2)
-        }, LinearLayout.LayoutParams(dp(44), dp(4)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            bottomMargin = dp(18)
-        })
-        root.addView(TextView(context).apply {
-            text = "通常チャット文字サイズ"
-            textSize = 22f
-            setTextColor(Color.parseColor("#F5F5F5"))
-            includeFontPadding = false
-        })
-        root.addView(TextView(context).apply {
-            text = "通常チャット専用モードの文字サイズを変更します。"
-            textSize = 12f
-            setTextColor(Color.parseColor("#A8A8A8"))
-            setPadding(0, dp(6), 0, dp(12))
-        })
-        options.forEachIndexed { index, label ->
-            root.addView(MaterialRadioButton(context).apply {
-                text = label
-                textSize = 16f
-                setTextColor(Color.parseColor("#F5F5F5"))
-                buttonTintList = controlTint
-                isChecked = values[index] == normalChatFontScale
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, 0, 0, 0)
-                setOnClickListener {
-                    setNormalChatFontScale(values[index])
-                    dialog.dismiss()
-                }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)))
-        }
-        root.addView(MaterialButton(context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "キャンセル"
-            minHeight = dp(40)
-            minimumHeight = dp(40)
-            setOnClickListener { dialog.dismiss() }
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-            gravity = Gravity.END
-        })
-
-        dialog.setContentView(root)
-        dialog.setOnShowListener {
-            dialog.behavior.skipCollapsed = true
-            dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        }
-        dialog.show()
     }
 
     private fun showNormalChatIntervalDialog() {
-        val options = arrayOf("高速 50ms", "標準 100ms", "ゆっくり 150ms", "かなりゆっくり 250ms", "確認用 500ms")
         val values = NORMAL_CHAT_INTERVALS_MS
-        val dialog = BottomSheetDialog(this, R.style.YTFlowSettingsBottomSheetDialog)
-        val context = dialog.context
-        val controlTint = ColorStateList(
-            arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()),
-            intArrayOf(Color.parseColor("#FF0033"), Color.parseColor("#9A949D")),
-        )
-        val root = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(10), dp(20), dp(24))
+        showSettingsChoice("通常チャット更新間隔", values.map { "${it}ms" }, values.indexOf(normalChatIntervalMs)) {
+            setNormalChatInterval(values[it])
         }
-        root.addView(View(context).apply {
-            background = roundedDrawable(Color.parseColor("#5E5E5E"), 2)
-        }, LinearLayout.LayoutParams(dp(44), dp(4)).apply {
-            gravity = Gravity.CENTER_HORIZONTAL
-            bottomMargin = dp(18)
-        })
-        root.addView(TextView(context).apply {
-            text = "通常チャット更新間隔"
-            textSize = 22f
-            setTextColor(Color.parseColor("#F5F5F5"))
-            includeFontPadding = false
-        })
-        root.addView(TextView(context).apply {
-            text = "返ってきたチャットを何msごとに表示するかを変更します。"
-            textSize = 12f
-            setTextColor(Color.parseColor("#A8A8A8"))
-            setPadding(0, dp(6), 0, dp(12))
-        })
-        options.forEachIndexed { index, label ->
-            root.addView(MaterialRadioButton(context).apply {
-                text = label
-                textSize = 16f
-                setTextColor(Color.parseColor("#F5F5F5"))
-                buttonTintList = controlTint
-                isChecked = values[index] == normalChatIntervalMs
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, 0, 0, 0)
-                setOnClickListener {
-                    setNormalChatInterval(values[index])
-                    dialog.dismiss()
-                }
-            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)))
-        }
-        root.addView(MaterialButton(context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
-            text = "キャンセル"
-            minHeight = dp(40)
-            minimumHeight = dp(40)
-            setOnClickListener { dialog.dismiss() }
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-            gravity = Gravity.END
-        })
-
-        dialog.setContentView(root)
-        dialog.setOnShowListener {
-            dialog.behavior.skipCollapsed = true
-            dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        }
-        dialog.show()
     }
 
     private fun cycleNormalChatFontScale() {
@@ -1117,7 +1017,6 @@ class MainActivity : Activity() {
 
     private fun applyNormalChatSettings() {
         updateNormalChatControls()
-        applyNormalChatModeToPage(false)
         applyNormalChatSettingsToChatSession()
     }
 
@@ -1130,11 +1029,13 @@ class MainActivity : Activity() {
         }
         if (::btnNormalChatName.isInitialized) {
             btnNormalChatName.text = if (normalChatShowName) "名ON" else "名OFF"
-            btnNormalChatName.setTextColor(if (normalChatShowName) Color.WHITE else Color.parseColor("#9AA0A6"))
+            btnNormalChatName.setTextColor(themeColor(this, if (normalChatShowName)
+                com.google.android.material.R.attr.colorOnSurface else com.google.android.material.R.attr.colorOnSurfaceVariant))
         }
         if (::btnNormalChatIcon.isInitialized) {
             btnNormalChatIcon.text = if (normalChatShowIcon) "顔ON" else "顔OFF"
-            btnNormalChatIcon.setTextColor(if (normalChatShowIcon) Color.WHITE else Color.parseColor("#9AA0A6"))
+            btnNormalChatIcon.setTextColor(themeColor(this, if (normalChatShowIcon)
+                com.google.android.material.R.attr.colorOnSurface else com.google.android.material.R.attr.colorOnSurfaceVariant))
         }
     }
 
@@ -1166,9 +1067,8 @@ class MainActivity : Activity() {
             minHeight = 0
             minWidth = 0
             setPadding(dp(8), dp(4), dp(8), dp(4))
-            setTextColor(Color.WHITE)
-            // 透明ではなく、少し明るいグレーの角丸背景にする
-            applyModernRipple(cornerRadiusDp = 12, bgColor = 0xFF2A2A2A.toInt())
+            setTextColor(themeColor(context, com.google.android.material.R.attr.colorOnSurface))
+            applyModernRipple(8, themeColor(context, com.google.android.material.R.attr.colorSurfaceContainer))
             setOnClickListener { onClick() }
             if (onLongClick != null) {
                 setOnLongClickListener { onLongClick() }
@@ -1179,14 +1079,13 @@ class MainActivity : Activity() {
         ImageButton(this).apply {
             contentDescription = label
             setImageResource(iconRes)
-            setColorFilter(Color.WHITE)
+            setColorFilter(themeColor(context, com.google.android.material.R.attr.colorOnSurface))
             scaleType = ImageView.ScaleType.CENTER
             setMinimumHeight(0)
             setMinimumWidth(0)
             setPadding(dp(12), dp(12), dp(12), dp(12))
             
-            // 透明ではなく、少し明るいグレーの角丸背景にする
-            applyModernRipple(cornerRadiusDp = 12, bgColor = 0xFF2A2A2A.toInt())
+            applyModernRipple(8, themeColor(context, com.google.android.material.R.attr.colorSurfaceContainer))
             
             setOnClickListener { onClick() }
         }
@@ -1207,23 +1106,17 @@ class MainActivity : Activity() {
         }
 
     private fun createBrowser() {
-        runtime = GeckoRuntime.create(
-            this,
-            GeckoRuntimeSettings.Builder()
-                .remoteDebuggingEnabled(true)
-                .build(),
-        )
+        runtime = playback.runtime
         mobileSession = createManagedSession(BrowserSurface.MOBILE, BrowserMode.MOBILE)
-        videoSession = createManagedSession(BrowserSurface.VIDEO, BrowserMode.DESKTOP)
+        videoSession = createManagedSession(BrowserSurface.VIDEO, BrowserMode.DESKTOP, playback.videoSession)
         mobileSession.open(runtime)
-        videoSession.open(runtime)
         geckoView.setSession(mobileSession)
         runtime.webExtensionController.setTabActive(mobileSession, true)
         runtime.webExtensionController.setTabActive(videoSession, false)
     }
 
-    private fun createManagedSession(surface: BrowserSurface, initialMode: BrowserMode): GeckoSession {
-        val session = GeckoSession(
+    private fun createManagedSession(surface: BrowserSurface, initialMode: BrowserMode, existing: GeckoSession? = null): GeckoSession {
+        val session = existing ?: GeckoSession(
             GeckoSessionSettings.Builder()
                 .userAgentMode(
                     if (initialMode == BrowserMode.DESKTOP) {
@@ -1232,17 +1125,11 @@ class MainActivity : Activity() {
                         GeckoSessionSettings.USER_AGENT_MODE_MOBILE
                     }
                 )
-                .viewportMode(
-                    if (initialMode == BrowserMode.DESKTOP) {
-                        GeckoSessionSettings.VIEWPORT_MODE_MOBILE
-                    } else {
-                        GeckoSessionSettings.VIEWPORT_MODE_MOBILE
-                    }
-                )
+                .viewportMode(GeckoSessionSettings.VIEWPORT_MODE_MOBILE)
                 .useTrackingProtection(false)
                 .build(),
         )
-        session.permissionDelegate = object : GeckoSession.PermissionDelegate {
+        if (surface != BrowserSurface.VIDEO) session.permissionDelegate = object : GeckoSession.PermissionDelegate {
             override fun onContentPermissionRequest(
                 session: GeckoSession,
                 request: GeckoSession.PermissionDelegate.ContentPermission
@@ -1284,26 +1171,18 @@ class MainActivity : Activity() {
                                     try {
                                         const u = new URL(window.location.href);
                                         u.searchParams.delete('t');
-                                        alert('ytcc-save-state:t=' + Math.floor(video.currentTime) + '&url=' + encodeURIComponent(u.toString()));
+                                        const response = document.querySelector('#movie_player')?.getPlayerResponse();
+                                        const live = response?.videoDetails?.videoId === u.searchParams.get('v')
+                                            ? '&live=' + (response.microformat?.playerMicroformatRenderer?.liveBroadcastDetails?.isLiveNow === true)
+                                            : '';
+                                        alert('ytcc-save-state:t=' + Math.floor(video.currentTime) + '&url=' + encodeURIComponent(u.toString()) + live);
                                     } catch(e) {}
                                 }
                             }, 5000);
                         }
-                        (() => {
-                            const sendTitle = () => {
-                                const rawTitle = document.title || '';
-                                const title = rawTitle.replace(/\s*-\s*YouTube\s*$/i, '').trim();
-                                if (title) {
-                                    alert('ytcc-video-title:title=' + encodeURIComponent(title));
-                                }
-                            };
-                            sendTitle();
-                            setTimeout(sendTitle, 1200);
-                        })();
                     """.trimIndent()
                     session.loadUri("javascript:${Uri.encode(script)}")
                     applyLiveChatFlusherAppSettings()
-                    applyNormalChatModeToPage(false)
                     applyNormalChatSettingsToChatSession()
                 }
             }
@@ -1321,16 +1200,7 @@ class MainActivity : Activity() {
             ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
                 val message = prompt.message ?: ""
                 if (message.startsWith("ytcc-save-state:")) {
-                    val data = message.substringAfter("ytcc-save-state:")
-                    val params = parseAlertParams(data)
-                    val url = params["url"]?.let { java.net.URLDecoder.decode(it, "UTF-8") }
-                    val t = params["t"]?.toIntOrNull() ?: 0
-                    if (url != null && isYouTubeUrl(url) && browserModeFor(url) == BrowserMode.DESKTOP) {
-                        prefs.edit()
-                            .putString(PREF_LAST_VIDEO_URL, url)
-                            .putInt(PREF_LAST_VIDEO_TIME, t)
-                            .apply()
-                    }
+                    playback.savePlaybackAlert(message)
                     val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
                     result.complete(prompt.dismiss())
                     return result
@@ -1373,21 +1243,6 @@ class MainActivity : Activity() {
                             intent.setPackage(null)
                             runCatching { startActivity(intent) }
                         }
-                    }
-                    val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
-                    result.complete(prompt.dismiss())
-                    return result
-                }
-                if (message.startsWith("ytcc-video-title:")) {
-                    val data = message.substringAfter("ytcc-video-title:")
-                    val params = parseAlertParams(data)
-                    val title = params["title"]
-                        ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
-                        ?.trim()
-                        ?.takeIf { it.isNotBlank() }
-                    if (title != null) {
-                        videoTitle = title
-                        if (mediaNotificationVisible) showOrUpdateMediaNotification()
                     }
                     val result = GeckoResult<GeckoSession.PromptDelegate.PromptResponse>()
                     result.complete(prompt.dismiss())
@@ -1522,15 +1377,21 @@ class MainActivity : Activity() {
             override fun onCanGoBack(session: GeckoSession, canGoBack: Boolean) {
                 when (surface) {
                     BrowserSurface.MOBILE -> mobileCanGoBack = canGoBack
-                    BrowserSurface.VIDEO -> videoCanGoBack = canGoBack
-                    BrowserSurface.CHAT -> chatCanGoBack = canGoBack
+                    BrowserSurface.VIDEO -> {
+                        videoCanGoBack = canGoBack
+                        playback.canGoBack = canGoBack
+                    }
+                    BrowserSurface.CHAT -> Unit
                 }
             }
 
             override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
                 when (surface) {
                     BrowserSurface.MOBILE -> mobileCanGoForward = canGoForward
-                    BrowserSurface.VIDEO -> videoCanGoForward = canGoForward
+                    BrowserSurface.VIDEO -> {
+                        videoCanGoForward = canGoForward
+                        playback.canGoForward = canGoForward
+                    }
                     BrowserSurface.CHAT -> chatCanGoForward = canGoForward
                 }
             }
@@ -1550,6 +1411,12 @@ class MainActivity : Activity() {
             "youtube-live-chat-flusher@local",
             "LiveChat Flusher",
             { ext -> lcfExtension = ext }
+        )
+        installExtension(
+            "resource://android/assets/extensions/dvr_chan/",
+            "dvr-chan@local",
+            "DVR-chan",
+            {}
         )
         installExtension(
             "resource://android/assets/extensions/youtube_chat_cleaner/",
@@ -1694,7 +1561,6 @@ class MainActivity : Activity() {
         extension: WebExtension?,
         pagePath: String,
         label: String,
-        showSaveButton: Boolean,
         reloadAfterSave: Boolean,
     ) {
         val ext = extension
@@ -1724,59 +1590,49 @@ class MainActivity : Activity() {
             }
         }
 
-        val dialog = Dialog(this)
-        val root = LinearLayout(this).apply {
+        val dialog = Dialog(this, R.style.YTFlowExtensionSettingsDialog)
+        val context = dialog.context
+        val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.WHITE)
+            background = MaterialShapeDrawable(ShapeAppearanceModel.builder()
+                .setAllCornerSizes(resources.getDimension(R.dimen.settings_corner_radius)).build())
+            clipToOutline = true
+            // Keep the web surface clear of the rounded bottom corners.
+            setPadding(0, 0, 0, resources.getDimensionPixelSize(R.dimen.settings_corner_radius))
         }
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(8), dp(8), dp(8))
-            setBackgroundColor(0xFF202124.toInt())
-        }
-        val title = TextView(this).apply {
-            text = label
-            textSize = 15f
-            setTextColor(Color.WHITE)
-        }
-        header.addView(title, LinearLayout.LayoutParams(0, dp(42), 1f))
-
-        header.addView(
-            toolbarButton("×", onClick = {
-                if (reloadAfterSave && savedInPopup[0]) {
-                    activeSession().reload()
-                    status.text = "$label の設定を反映するため再読み込みしました"
-                }
+        val header = MaterialToolbar(context).apply {
+            id = R.id.extension_settings_toolbar
+            title = label
+            menu.add("閉じる").apply {
+                setIcon(R.drawable.ic_close)
+                setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                contentDescription = "閉じる"
+            }
+            setOnMenuItemClickListener {
                 dialog.dismiss()
-            }),
-            LinearLayout.LayoutParams(dp(46), dp(42)),
-        )
-        root.addView(header, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-
-        val hint = TextView(this).apply {
-            text = "有効・無効の切り替えは、メニューの「⚙」ボタンから行えます"
-            textSize = 12f
-            setTextColor(0xFF5F6368.toInt())
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            setBackgroundColor(0xFFF1F3F4.toInt())
+                true
+            }
         }
-        root.addView(hint, LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        root.addView(header, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56)))
 
-        val popupView = GeckoView(this)
+        val popupView = GeckoView(context)
         root.addView(
             popupView,
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f),
         )
 
         dialog.setContentView(root)
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         dialog.setOnShowListener {
-            dialog.window?.setLayout(
-                (resources.displayMetrics.widthPixels * 0.94f).toInt(),
-                (resources.displayMetrics.heightPixels * 0.82f).toInt(),
-            )
+            activeExtensionDialog = dialog
+            configureExtensionDialog(dialog)
         }
         dialog.setOnDismissListener {
+            if (!isFinishing && !isChangingConfigurations && reloadAfterSave && savedInPopup[0]) {
+                activeSession().reload()
+                status.text = "$label の設定を反映するため再読み込みしました"
+            }
+            if (activeExtensionDialog === dialog) activeExtensionDialog = null
             runCatching { popupSession.stop() }
             runCatching { popupSession.close() }
         }
@@ -1784,6 +1640,25 @@ class MainActivity : Activity() {
         popupView.setSession(popupSession)
         popupSession.loadUri(ext.metaData.baseUrl + pagePath)
         dialog.show()
+    }
+
+    private fun configureExtensionDialog(dialog: Dialog) {
+        dialog.window?.let { updateSystemBarAppearance(it) }
+        dialog.context.theme.rebase()
+        dialog.context.theme.applyStyle(R.style.YTFlowExtensionSettingsDialog, true)
+        val surface = MaterialColors.getColor(dialog.context, com.google.android.material.R.attr.colorSurface, Color.BLACK)
+        val onSurface = MaterialColors.getColor(dialog.context, com.google.android.material.R.attr.colorOnSurface, Color.WHITE)
+        dialog.findViewById<MaterialToolbar>(R.id.extension_settings_toolbar)?.let { toolbar ->
+            toolbar.setBackgroundColor(surface)
+            toolbar.setTitleTextColor(onSurface)
+            toolbar.menu.getItem(0).icon?.setTint(onSurface)
+            ((toolbar.parent as View).background as MaterialShapeDrawable).fillColor = ColorStateList.valueOf(surface)
+        }
+        val metrics = windowManager.currentWindowMetrics
+        val insets = metrics.windowInsets.getInsets(android.view.WindowInsets.Type.systemBars())
+        val width = metrics.bounds.width() - insets.left - insets.right
+        val height = metrics.bounds.height() - insets.top - insets.bottom
+        dialog.window?.setLayout(minOf(width - dp(24), dp(960)), (height * 0.9f).toInt())
     }
 
     private fun applyBrowserMode(surface: BrowserSurface, mode: BrowserMode) {
@@ -1817,7 +1692,6 @@ class MainActivity : Activity() {
     private fun switchToSurface(surface: BrowserSurface) {
         if (activeSurface == surface) return
 
-        val previousSurface = activeSurface
         if (surface == BrowserSurface.MOBILE && chatOnlyModeEnabled) {
             setChatOnlyMode(false)
         }
@@ -1827,22 +1701,14 @@ class MainActivity : Activity() {
         if (activeSurface == BrowserSurface.VIDEO && surface == BrowserSurface.MOBILE) {
             pauseVideoPlayback()
             hideMediaNotification()
-            // 画面を切り替えても、動画セッションの通信権限は3秒間維持する（履歴送信猶予）
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                runCatching { runtime.webExtensionController.setTabActive(oldSession, false) }
-            }, 3000)
-        } else {
-            runtime.webExtensionController.setTabActive(oldSession, false)
         }
+        runtime.webExtensionController.setTabActive(oldSession, false)
         
         if (fullScreen) setAppFullScreen(false)
         activeSurface = surface
         updateRequestedOrientation()
         applyEffectiveOsFps(showToast = false) // 表示画面が変わったのでFPS制限を再評価・適用
         geckoView.setSession(activeSession())
-        if (surface == BrowserSurface.CHAT || previousSurface == BrowserSurface.CHAT) {
-            geckoView.requestNewSurface()
-        }
         runtime.webExtensionController.setTabActive(activeSession(), true)
         address.setText(currentUrl())
         status.text = when (surface) {
@@ -1867,19 +1733,11 @@ class MainActivity : Activity() {
     }
 
     private fun resetVideoSessionForMobileEntry() {
-        if (::videoSession.isInitialized) {
-            runCatching { pauseVideoPlayback() }
-            runCatching { hideMediaNotification() }
-            runCatching { runtime.webExtensionController.setTabActive(videoSession, false) }
-            runCatching { videoSession.stop() }
-            runCatching { videoSession.close() }
-        }
-        videoSession = createManagedSession(BrowserSurface.VIDEO, BrowserMode.DESKTOP)
-        videoSession.open(runtime)
+        playback.resetVideoSession()
+        videoSession = createManagedSession(BrowserSurface.VIDEO, BrowserMode.DESKTOP, playback.videoSession)
         videoMode = BrowserMode.DESKTOP
         videoCanGoBack = false
         videoCanGoForward = false
-        videoHistory.clear()
     }
 
     private fun restoreMobileSessionAfterVideoIntercept() {
@@ -1934,33 +1792,12 @@ class MainActivity : Activity() {
     private fun trackVideoUrl(rawUrl: String) {
         val normalized = normalizeYouTubeUrl(rawUrl)
         if (surfaceForUrl(normalized) != BrowserSurface.VIDEO) return
-        if (normalized != videoUrl) videoTitle = null
         videoUrl = normalized
-        val existingIndex = videoHistory.indexOfLast { it == normalized }
-        if (existingIndex >= 0) {
-            while (videoHistory.size > existingIndex + 1) videoHistory.removeAt(videoHistory.lastIndex)
-        } else if (videoHistory.lastOrNull() != normalized) {
-            videoHistory.add(normalized)
-        }
+        playback.trackVideoUrl(normalized)
     }
 
     private fun pauseVideoPlayback() {
-        if (!::videoSession.isInitialized) return
-        pipPlaybackPaused = true
-        updateMediaSessionState()
-        if (mediaNotificationVisible) showOrUpdateMediaNotification()
-        val script = """
-            (() => {
-              for (const video of document.querySelectorAll('video')) {
-                try { video.pause(); } catch (_) {}
-              }
-              const player = document.querySelector('#movie_player');
-              if (player && typeof player.pauseVideo === 'function') {
-                try { player.pauseVideo(); } catch (_) {}
-              }
-            })()
-        """.trimIndent()
-        videoSession.loadUri("javascript:${Uri.encode(script)}")
+        requestVideoPlaybackPaused(true)
     }
 
     private fun setAppFullScreen(enabled: Boolean) {
@@ -1990,14 +1827,17 @@ class MainActivity : Activity() {
     }
 
     private fun shouldEnterPictureInPicture(): Boolean =
-        activeSurface == BrowserSurface.VIDEO && videoHistory.isNotEmpty() && !inPictureInPicture
+        ::playback.isInitialized && playback.canControl && !playback.paused &&
+            activeSurface == BrowserSurface.VIDEO && videoHistory.isNotEmpty() && !inPictureInPicture
 
     private fun enterAppPictureInPicture() {
         if (!::geckoView.isInitialized) return
         runCatching {
-            pipPlaybackPaused = false
             setPageAppPictureInPictureFlag(true)
-            enterPictureInPictureMode(createPictureInPictureParams())
+            if (!enterPictureInPictureMode(createPictureInPictureParams())) {
+                setPageAppPictureInPictureFlag(false)
+                Log.w(TAG, "Picture-in-Picture request declined by Android")
+            }
         }.onFailure {
             setPageAppPictureInPictureFlag(false)
             Log.w(TAG, "Failed to enter Picture-in-Picture", it)
@@ -2005,139 +1845,23 @@ class MainActivity : Activity() {
     }
 
     private fun createPictureInPictureParams(): PictureInPictureParams {
-        val toggleIntent = Intent(this, PipActionReceiver::class.java).apply {
-            action = ACTION_PIP_TOGGLE_PLAYBACK
-        }
-        val togglePendingIntent = PendingIntent.getBroadcast(
-            this,
-            0,
-            toggleIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val icon = if (pipPlaybackPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
-        val label = if (pipPlaybackPaused) "再生" else "一時停止"
+        val icon = if (videoPlaybackPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
+        val label = if (videoPlaybackPaused) "再生" else "一時停止"
         val toggleAction = RemoteAction(
             Icon.createWithResource(this, icon),
             label,
             label,
-            togglePendingIntent,
-        )
-        val closeIntent = Intent(this, PipActionReceiver::class.java).apply {
-            action = ACTION_PIP_CLOSE
-        }
-        val closePendingIntent = PendingIntent.getBroadcast(
-            this,
-            3,
-            closeIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val closeAction = RemoteAction(
-            Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-            "閉じる",
-            "閉じる",
-            closePendingIntent,
-        )
+            PlaybackService.toggleIntent(this),
+        ).apply { isEnabled = playback.canControl }
         return PictureInPictureParams.Builder()
             .setAspectRatio(Rational(16, 9))
             .setActions(listOf(toggleAction))
-            .setCloseAction(closeAction)
             .build()
     }
 
-    private fun showOrUpdateMediaNotification() {
-        updateMediaSessionState()
-        if (!canPostNotifications()) return
-        runCatching {
-            notificationManager.notify(MEDIA_NOTIFICATION_ID, createMediaNotification())
-            mediaNotificationVisible = true
-        }.onFailure {
-            Log.w(TAG, "Failed to show media notification", it)
-        }
-    }
+    private fun showOrUpdateMediaNotification() = playback.showNotification()
 
-    private fun createMediaNotification(): Notification {
-        val openIntent = PendingIntent.getActivity(
-            this,
-            1,
-            Intent(this, MainActivity::class.java).apply {
-                action = Intent.ACTION_MAIN
-                addCategory(Intent.CATEGORY_LAUNCHER)
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val toggleIntent = PendingIntent.getBroadcast(
-            this,
-            2,
-            Intent(this, PipActionReceiver::class.java).apply {
-                action = ACTION_PIP_TOGGLE_PLAYBACK
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val actionIcon = if (pipPlaybackPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause
-        val actionLabel = if (pipPlaybackPaused) "再生" else "一時停止"
-        val action = Notification.Action.Builder(actionIcon, actionLabel, toggleIntent).build()
-        return Notification.Builder(this, MEDIA_CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(mediaNotificationTitle())
-            .setContentText("YTChat")
-            .setSubText("YouTube")
-            .setContentIntent(openIntent)
-            .setShowWhen(false)
-            .setOngoing(!pipPlaybackPaused)
-            .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .setCategory(Notification.CATEGORY_TRANSPORT)
-            .addAction(action)
-            .setStyle(
-                Notification.MediaStyle()
-                    .setMediaSession(mediaSession?.sessionToken)
-                    .setShowActionsInCompactView(0),
-            )
-            .build()
-    }
-
-    private fun updateMediaSessionState() {
-        val state = if (pipPlaybackPaused) PlaybackState.STATE_PAUSED else PlaybackState.STATE_PLAYING
-        mediaSession?.setPlaybackState(
-            PlaybackState.Builder()
-                .setActions(
-                    PlaybackState.ACTION_PLAY or
-                        PlaybackState.ACTION_PAUSE or
-                        PlaybackState.ACTION_PLAY_PAUSE or
-                        PlaybackState.ACTION_STOP,
-                )
-                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
-                .build(),
-        )
-        mediaSession?.setMetadata(
-            MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, mediaNotificationTitle())
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, "YTChat")
-                .build(),
-        )
-    }
-
-    private fun hideMediaNotification() {
-        if (::notificationManager.isInitialized) {
-            notificationManager.cancel(MEDIA_NOTIFICATION_ID)
-        }
-        mediaNotificationVisible = false
-        mediaSession?.setPlaybackState(
-            PlaybackState.Builder()
-                .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE)
-                .setState(PlaybackState.STATE_STOPPED, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1f)
-                .build(),
-        )
-    }
-
-    private fun canPostNotifications(): Boolean {
-        return checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun mediaNotificationTitle(): String {
-        videoTitle?.takeIf { it.isNotBlank() }?.let { return "YouTubeを再生中: $it" }
-        val videoId = runCatching { Uri.parse(videoUrl).getQueryParameter("v") }.getOrNull()
-        return if (videoId.isNullOrBlank()) "YouTubeを再生中" else "YouTubeを再生中: $videoId"
-    }
+    private fun hideMediaNotification() = playback.hideNotification()
 
     private fun updateChromeForPictureInPicture() {
         val hideChrome = fullScreen || inPictureInPicture
@@ -2160,37 +1884,31 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun enterVideoFullScreen() {
-        setAppFullScreen(true)
-    }
-
     private fun triggerYouTubeFullScreen() {
         if (activeSurface != BrowserSurface.VIDEO || !isYouTubeUrl(currentUrl())) return
         geckoView.requestFocus()
-        // 1. 再生トグルの起きない画面下部中央（動画情報や関連動画のあるエリア）を疑似タップしてUser Gestureを成立させる
-        simulateNativeTouchAt(geckoView.width / 2f, geckoView.height * 0.7f)
+        status.text = "全画面: Fキー"
+        dispatchNativeKey(android.view.KeyEvent.KEYCODE_F)
+    }
 
-        // 2. タッチイベントの処理後に f キーショートカットを評価
-        geckoView.postDelayed({
-            val script = """
-                (() => {
-                  const player = document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
-                  if (player) {
-                    player.focus();
-                    const ev = new KeyboardEvent('keydown', {
-                      key: 'f',
-                      code: 'KeyF',
-                      keyCode: 70,
-                      which: 70,
-                      bubbles: true,
-                      cancelable: true
-                    });
-                    player.dispatchEvent(ev);
-                  }
-                })()
-            """.trimIndent()
-            activeSession().loadUri("javascript:${Uri.encode(script)}")
-        }, 50)
+    private fun dispatchNativeKey(keyCode: Int) {
+        val downTime = android.os.SystemClock.uptimeMillis()
+        val downEvent = android.view.KeyEvent(
+            downTime,
+            downTime,
+            android.view.KeyEvent.ACTION_DOWN,
+            keyCode,
+            0
+        )
+        val upEvent = android.view.KeyEvent(
+            downTime,
+            android.os.SystemClock.uptimeMillis(),
+            android.view.KeyEvent.ACTION_UP,
+            keyCode,
+            0
+        )
+        geckoView.dispatchKeyEvent(downEvent)
+        geckoView.dispatchKeyEvent(upEvent)
     }
 
     private fun triggerYouTubePlayPauseShortcut() {
@@ -2221,64 +1939,7 @@ class MainActivity : Activity() {
         status.text = "再生/停止"
     }
 
-    private fun simulateNativeTouchAt(x: Float, y: Float) {
-        val downTime = android.os.SystemClock.uptimeMillis()
-        val eventTime = android.os.SystemClock.uptimeMillis()
-        val downEvent = android.view.MotionEvent.obtain(
-            downTime, eventTime,
-            android.view.MotionEvent.ACTION_DOWN, x, y, 0
-        )
-        geckoView.dispatchTouchEvent(downEvent)
-        downEvent.recycle()
-
-        val upEvent = android.view.MotionEvent.obtain(
-            downTime, eventTime + 20,
-            android.view.MotionEvent.ACTION_UP, x, y, 0
-        )
-        geckoView.dispatchTouchEvent(upEvent)
-        upEvent.recycle()
-    }
-
-    internal fun handlePipPlaybackAction() {
-        setVideoPlaybackPaused(!pipPlaybackPaused)
-    }
-
-    internal fun handlePipCloseAction() {
-        if (pausePlaybackOnPipClose) {
-            setVideoPlaybackPaused(true)
-        }
-    }
-
-    private fun setVideoPlaybackPaused(paused: Boolean) {
-        if (!::videoSession.isInitialized) return
-        pipPlaybackPaused = paused
-        updateMediaSessionState()
-        if (mediaNotificationVisible || activeSurface == BrowserSurface.VIDEO || inPictureInPicture) {
-            showOrUpdateMediaNotification()
-        }
-        if (inPictureInPicture) {
-            setPictureInPictureParams(createPictureInPictureParams())
-        }
-        val command = if (paused) "pause" else "play"
-        val script = """
-            (() => {
-              const video = document.querySelector('#movie_player video') || document.querySelector('video');
-              const player = document.querySelector('#movie_player');
-              if ('$command' === 'play') {
-                if (player && typeof player.playVideo === 'function') {
-                  try { player.playVideo(); return; } catch (_) {}
-                }
-                try { video.play(); } catch (_) {}
-                return;
-              }
-              if (player && typeof player.pauseVideo === 'function') {
-                try { player.pauseVideo(); return; } catch (_) {}
-              }
-              try { video?.pause(); } catch (_) {}
-            })()
-        """.trimIndent()
-        videoSession.loadUri("javascript:${Uri.encode(script)}")
-    }
+    private fun requestVideoPlaybackPaused(paused: Boolean) = playback.requestPaused(paused)
 
     private fun exitPageFullScreen() {
         activeSession().exitFullScreen()
@@ -2312,6 +1973,7 @@ class MainActivity : Activity() {
         when (prefKey) {
             PREF_YCC_ENABLED -> youtubeChatCleanerEnabled = enabled
             PREF_LCF_ENABLED -> liveChatFlusherEnabled = enabled
+            PREF_DVR_ENABLED -> dvrChanEnabled = enabled
         }
         status.text = "$label: ${if (enabled) "ON" else "OFF"}"
         loadUrl(withAppFlags(currentUrl()))
@@ -2320,8 +1982,6 @@ class MainActivity : Activity() {
     private fun setChatOnlyMode(enabled: Boolean) {
         if (enabled && activeSurface != BrowserSurface.VIDEO) {
             chatOnlyModeEnabled = false
-            prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, false).apply()
-            applyNormalChatModeToPage(false)
             status.text = "通常チャット専用モードは動画画面でオンにしてください"
             applyEffectiveOsFps(showToast = false)
             updateChromeForPictureInPicture()
@@ -2330,9 +1990,7 @@ class MainActivity : Activity() {
 
         if (enabled) {
             chatOnlyModeEnabled = true
-            prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, true).apply()
             status.text = "通常チャットURLを取得中"
-            applyNormalChatModeToPage(false)
             requestChatOnlyUrlFromVideoPage()
             applyEffectiveOsFps(showToast = false)
             updateChromeForPictureInPicture()
@@ -2340,9 +1998,7 @@ class MainActivity : Activity() {
         }
 
         chatOnlyModeEnabled = enabled
-        prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, false).apply()
         status.text = "通常チャット専用モード: OFF"
-        applyNormalChatModeToPage(false)
         if (activeSurface == BrowserSurface.CHAT) {
             switchToSurface(BrowserSurface.VIDEO)
         }
@@ -2550,15 +2206,10 @@ class MainActivity : Activity() {
 
         Log.i(TAG, "Opening chat-only URL: $normalized")
         chatOnlyModeEnabled = true
-        prefs.edit().putBoolean(PREF_CHAT_ONLY_MODE, true).apply()
-        applyNormalChatModeToPage(false)
         resetChatSessionForChatOnly()
         switchToSurface(BrowserSurface.CHAT)
         applyBrowserMode(BrowserSurface.CHAT, BrowserMode.DESKTOP)
         loadUrlInto(BrowserSurface.CHAT, normalized)
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            if (activeSurface == BrowserSurface.CHAT) geckoView.requestNewSurface()
-        }, 500)
         applyEffectiveOsFps(showToast = false)
         updateChromeForPictureInPicture()
         status.text = "通常チャット専用モード: ON"
@@ -2574,7 +2225,6 @@ class MainActivity : Activity() {
         chatSession.open(runtime)
         chatSessionOpen = true
         chatMode = BrowserMode.DESKTOP
-        chatCanGoBack = false
         chatCanGoForward = false
     }
 
@@ -2588,7 +2238,6 @@ class MainActivity : Activity() {
         runCatching { chatSession.close() }
         chatSessionOpen = false
         chatMode = BrowserMode.DESKTOP
-        chatCanGoBack = false
         chatCanGoForward = false
         chatUrl = ""
     }
@@ -2599,21 +2248,15 @@ class MainActivity : Activity() {
             chatSession.open(runtime)
             chatSessionOpen = true
             chatMode = BrowserMode.DESKTOP
-            chatCanGoBack = false
             chatCanGoForward = false
             runCatching { runtime.webExtensionController.setTabActive(chatSession, false) }
         }
         return chatSession
     }
 
-    private fun applyNormalChatModeToPage(enabled: Boolean) {
-        if (!::videoSession.isInitialized) return
-        videoSession.loadUri("javascript:${Uri.encode(normalChatSettingsScript(enabled))}")
-    }
-
     private fun applyNormalChatSettingsToChatSession() {
         if (!::chatSession.isInitialized || !chatSessionOpen) return
-        chatSession.loadUri("javascript:${Uri.encode(normalChatSettingsScript(true))}")
+        chatSession.loadUri("javascript:${Uri.encode(normalChatSettingsScript())}")
     }
 
     private fun applyLiveChatFlusherAppSettings() {
@@ -2637,72 +2280,22 @@ class MainActivity : Activity() {
         videoSession.loadUri("javascript:${Uri.encode(script)}")
     }
 
-    private fun normalChatSettingsScript(enabled: Boolean): String {
-        val value = if (enabled) "1" else "0"
+    private fun normalChatSettingsScript(): String {
         val showNameValue = if (normalChatShowName) "1" else "0"
         val showIconValue = if (normalChatShowIcon) "1" else "0"
         return """
             (() => {
               const root = document.documentElement;
-              try { root.setAttribute('data-ytlcf-app-normal-chat-enabled', '$value'); } catch (_) {}
-              try { root.setAttribute('data-ytlcf-app-normal-chat-font-scale', '$normalChatFontScale'); } catch (_) {}
-              try { root.setAttribute('data-ytlcf-app-normal-chat-interval-ms', '$normalChatIntervalMs'); } catch (_) {}
-              try { root.setAttribute('data-ytlcf-app-normal-chat-show-name', '$showNameValue'); } catch (_) {}
-              try { root.setAttribute('data-ytlcf-app-normal-chat-show-photo', '$showIconValue'); } catch (_) {}
-              try { localStorage.removeItem('ytlcf-app-normal-chat-enabled'); } catch (_) {}
-              try { localStorage.removeItem('ytcc-app-chat-only-enabled'); } catch (_) {}
+              root.setAttribute('data-ytlcf-app-normal-chat-font-scale', '$normalChatFontScale');
+              root.setAttribute('data-ytlcf-app-normal-chat-interval-ms', '$normalChatIntervalMs');
+              root.setAttribute('data-ytlcf-app-normal-chat-show-name', '$showNameValue');
+              root.setAttribute('data-ytlcf-app-normal-chat-show-photo', '$showIconValue');
               try { localStorage.setItem('ytlcf-app-normal-chat-font-scale', '$normalChatFontScale'); } catch (_) {}
               try { localStorage.setItem('ytlcf-app-normal-chat-interval-ms', '$normalChatIntervalMs'); } catch (_) {}
               try { localStorage.setItem('ytlcf-app-normal-chat-show-name', '$showNameValue'); } catch (_) {}
               try { localStorage.setItem('ytlcf-app-normal-chat-show-photo', '$showIconValue'); } catch (_) {}
-              if ('$value' !== '1') {
-                root.classList.remove('ytlcf-app-normal-chat-active');
-                const legacyTargets = document.querySelectorAll([
-                  'video',
-                  '.video-stream',
-                  '.html5-video-player',
-                  '.html5-video-container',
-                  '#movie_player',
-                  '#player',
-                  '#player-container',
-                  '#player-container-outer',
-                  'ytd-player',
-                  'ytd-miniplayer',
-                  '[class*="miniplayer"]',
-                  '[class*="MiniPlayer"]'
-                ].join(','));
-                for (const element of legacyTargets) {
-                  const style = element.style;
-                  const looksLegacyHidden =
-                    style.getPropertyValue('left') === '-10000px' ||
-                    style.getPropertyValue('top') === '-10000px' ||
-                    style.getPropertyValue('width') === '1px' ||
-                    style.getPropertyValue('height') === '1px' ||
-                    style.getPropertyValue('transform').includes('-10000px');
-                  if (!looksLegacyHidden) continue;
-                  for (const name of [
-                    'display',
-                    'visibility',
-                    'opacity',
-                    'pointer-events',
-                    'position',
-                    'left',
-                    'top',
-                    'width',
-                    'height',
-                    'transform'
-                  ]) {
-                    style.removeProperty(name);
-                  }
-                  if (element instanceof HTMLVideoElement) {
-                    element.removeAttribute('width');
-                    element.removeAttribute('height');
-                  }
-                }
-              }
               window.dispatchEvent(new Event('ytlcf-normal-chat-change'));
               window.postMessage({ type: 'ytlcf-normal-chat-change' }, '*');
-              window.dispatchEvent(new Event('resize'));
             })()
         """.trimIndent()
     }
@@ -2720,6 +2313,7 @@ class MainActivity : Activity() {
         val flaggedUri = builder
             .appendQueryParameter("ytcc_app_ycc", if (youtubeChatCleanerEnabled) "1" else "0")
             .appendQueryParameter("ytcc_app_lcf", if (liveChatFlusherEnabled) "1" else "0")
+            .appendQueryParameter("ytcc_app_dvr", if (dvrChanEnabled) "1" else "0")
             .appendQueryParameter("ytcc_app_chat_only", if (chatOnlyModeEnabled) "1" else "0")
             .appendQueryParameter("ytcc_app_normal_chat_font_scale", normalChatFontScale.toString())
             .appendQueryParameter("ytcc_app_normal_chat_interval_ms", normalChatIntervalMs.toString())
@@ -2909,8 +2503,8 @@ class MainActivity : Activity() {
 
 
     private fun View.applyModernRipple(cornerRadiusDp: Int = 8, bgColor: Int = Color.TRANSPARENT) {
-        // rippleColorをシステム属性に頼らず、明示的に「白の半透明(約25%不透明)」に指定し、黒/グレー背景でも確実に見えるようにする
-        val rippleColor = android.content.res.ColorStateList.valueOf(Color.parseColor("#40FFFFFF"))
+        val rippleColor = ColorStateList.valueOf(androidx.core.graphics.ColorUtils.setAlphaComponent(
+            themeColor(context, com.google.android.material.R.attr.colorOnSurface), 40))
         
         val content = if (bgColor != Color.TRANSPARENT) {
             roundedDrawable(bgColor, cornerRadiusDp)
@@ -2929,7 +2523,7 @@ class MainActivity : Activity() {
         private const val BLACK = Color.BLACK
         private const val PREF_YCC_ENABLED = "ycc_enabled"
         private const val PREF_LCF_ENABLED = "lcf_enabled"
-        private const val PREF_CHAT_ONLY_MODE = "chat_only_mode"
+        private const val PREF_DVR_ENABLED = "dvr_enabled"
         private const val PREF_PAUSE_ON_PIP_CLOSE = "pause_on_pip_close"
         private const val PREF_LCF_DANMAKU_FONT_SIZE_PX = "lcf_danmaku_font_size_px"
         private const val PREF_LCF_DANMAKU_SHOW_ICON = "lcf_danmaku_show_icon"
@@ -2947,23 +2541,8 @@ class MainActivity : Activity() {
         private const val CHAT_ONLY_FORCED_FPS = 15
         private const val PREF_LAST_VIDEO_URL = "last_video_url"
         private const val PREF_LAST_VIDEO_TIME = "last_video_time"
-        private const val MEDIA_CHANNEL_ID = "ytchat_media"
-        private const val MEDIA_NOTIFICATION_ID = 1001
         private const val REQUEST_POST_NOTIFICATIONS = 2001
-        const val ACTION_PIP_TOGGLE_PLAYBACK = "dev.ytchatplayer.app.PIP_TOGGLE_PLAYBACK"
-        const val ACTION_PIP_CLOSE = "dev.ytchatplayer.app.PIP_CLOSE"
-        private var currentActivity: MainActivity? = null
         private val YOUTUBE_HOSTS = setOf("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
-
-        fun handlePipAction(intent: Intent?) {
-            val action = intent?.action ?: return
-            currentActivity?.runOnUiThread {
-                when (action) {
-                    ACTION_PIP_TOGGLE_PLAYBACK -> currentActivity?.handlePipPlaybackAction()
-                    ACTION_PIP_CLOSE -> currentActivity?.handlePipCloseAction()
-                }
-            }
-        }
     }
 
     private enum class BrowserMode {
@@ -2975,11 +2554,5 @@ class MainActivity : Activity() {
         MOBILE,
         VIDEO,
         CHAT,
-    }
-}
-
-class PipActionReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent?) {
-        MainActivity.handlePipAction(intent)
     }
 }

@@ -1,172 +1,119 @@
-// @ts-expect-error
-self.browser ??= chrome;
+(function () {
+	'use strict';
+	// @ts-expect-error: Polyfill browser API for Chrome 147 or older environments
+	globalThis.browser ??= chrome;
+	if (localStorage.getItem('ytcc-app-lcf-enabled') === '0') return;
 
-if (localStorage.getItem('ytcc-app-lcf-enabled') !== '0') {
-const manifest = browser.runtime.getManifest();
+	if (/^\/live_chat(?:_replay)?$/.test(location.pathname)) {
+		import(browser.runtime.getURL('./modules/normal_chat_page.mjs'))
+			.then(module => module.initializeNormalChatPage())
+			.catch(console.error);
+		return;
+	}
 
-	self.addEventListener('ytcc-app-lcf-settings', event => {
-		applyAppSettingsToStorage(readAppSettingsDetail(event)).catch(console.error);
-	}, { passive: true });
+	const manifest = browser.runtime.getManifest();
 
-if (isNormalChatPageMode()) {
-	import(browser.runtime.getURL('./modules/normal_chat_page.mjs'))
-		.then(module => module.initializeNormalChatPage())
-		.catch(console.error);
-}
+	/** @type {Promise<typeof import("./modules/logging.mjs")>} */
+	const importingLogging = import(browser.runtime.getURL('./modules/logging.mjs'));
+	/** @type {Promise<typeof import("./modules/store.mjs")>} */
+	const importingStore = import(browser.runtime.getURL('./modules/store.mjs'));
+	/** @type {Promise<typeof import("./modules/main.mjs")>} */
+	const importingMain = import(browser.runtime.getURL('./modules/main.mjs'));
 
-	Promise.all([
-	import(browser.runtime.getURL('./modules/logging.mjs')),
-	new Promise(resolve => {
-		(function check() {
-			if (document.body) resolve(document.body);
-			else requestAnimationFrame(check);
-		})();
-	}),
-]).then((/** @type {[typeof import("./modules/logging.mjs"), HTMLBodyElement]} */ [{ logger }, _body]) => {
-	try {
-		document.body.dataset.browser = 'browser_specific_settings' in manifest ? 'firefox' : 'chrome';
+	async function checkAutoStart() {
+		const s = await importingStore.then(({ store }) => store.load());
+		const enabled = [ false, s?.others?.mode_replay !== 1, true ].at(s?.others?.autostart ?? 0);
+		if (!enabled) return false;
 
-		self.addEventListener('ytlcf-message', e => {
-			const { ytInitialData, ytcfg } = e.detail ?? {};
-			if (!ytInitialData || !ytcfg) {
+		const container = document.getElementById('show-hide-button');
+		if (!container || container.hidden) return false;
+
+		const button = container.querySelector('button');
+		if (button?.closest('#close-button')) return false;
+
+		button?.click();
+		return true;
+	};
+
+	importingLogging.then(async ({ logger }) => {
+		const MAX_ATTEMPTS = 10;
+		const nonce = crypto.randomUUID();
+
+		// fires when the injected script sends a message
+		self.addEventListener(`ytlcf-message:${nonce}`, e => {
+			const { INNERTUBE_API_KEY, INNERTUBE_CONTEXT, DATASYNC_ID } = e.detail?.ytcfg || {};
+			if (!e.detail?.ytInitialData || !INNERTUBE_API_KEY || !INNERTUBE_CONTEXT) {
 				logger.error('Failed to get a message from the injected script.');
 				return;
 			}
-			logger.debug('Getting initialization message from the injected script.');
-			sessionStorage.setItem('ytlcf-initial-data', ytInitialData);
-			sessionStorage.setItem('ytlcf-cfg', ytcfg);
+			logger.debug('Successfully received initialization message from the injected script:', e.detail);
 
-			const path = location.pathname.split('/').find(Boolean);
+			sessionStorage.setItem('INNERTUBE_API_KEY', INNERTUBE_API_KEY);
+			sessionStorage.setItem('INNERTUBE_CONTEXT', JSON.stringify(INNERTUBE_CONTEXT));
+			sessionStorage.setItem('DATASYNC_ID', DATASYNC_ID || '');
+
+			const path = location.pathname.split('/').find(Boolean) || '';
 			const detail = {
-				pageType: path === 'watch' || path === 'live' ? 'watch' : 'browse',
-				response: JSON.parse(ytInitialData),
+				pageType: ['watch', 'live'].includes(path) ? 'watch' : 'browse',
+				response: e.detail.ytInitialData,
 			};
-			const timer = setInterval(async () => {
+
+			let attempts = 0;
+			const timer = setInterval(() => {
 				const target = document.querySelector('ytd-app') || document.getElementById('player-container-id');
 				if (!target) {
 					logger.debug('Waiting for <ytd-app> element.');
+					if (attempts++ >= MAX_ATTEMPTS) {
+						clearInterval(timer);
+						logger.warn(`Failed to find <ytd-app> element after ${MAX_ATTEMPTS} attempts.`);
+					}
 					return;
 				}
-				try {
-					/** @type {typeof import("./modules/main.mjs")} */
-					const { initialize } = await import(browser.runtime.getURL('./modules/main.mjs'));
-					initialize({ target, detail });
-				} catch (e) {
-					logger.error('Failed to startup.\nCaused by:', e);
-				} finally {
-					clearInterval(timer);
-				}
+				importingMain.then(module => {
+					return module.initialize({ target, detail });
+				}).catch(err => {
+					logger.error('Failed to startup.\nCaused by:', err);
+				});
+				clearInterval(timer);
 			}, 1000);
-		}, { passive: true });
+		}, { once: true });
 
-		self.addEventListener('ytlcf-ready', e => {
-			e.stopImmediatePropagation();
-			logger.info(`${manifest.name} is ready!`);
-		}, { passive: true });
-
-		document.addEventListener('yt-action', e => {
-			const name = e.detail?.actionName;
-			switch (name) {
-				case 'ytd-watch-player-data-changed': {
-					const ev = new CustomEvent(name);
-					self.documentPictureInPicture?.window?.dispatchEvent(ev);
-					checkAutoStart();
-				}
+		return browser.runtime.sendMessage({
+			injection: 'init',
+			details: { nonce },
+		});
+	}).then(results => {
+		for (const r of results) {
+			if (r?.error) {
+				// @ts-expect-error: r.error is an object with name and message properties
+				const { name = 'AbortError', message = '' } = r.error;
+				throw new DOMException(message, name);
 			}
-		}, { passive: true });
-
-		const script = document.createElement('script');
-		script.src = browser.runtime.getURL('./injections/init.mjs');
-		script.type = 'module';
-		document.body.appendChild(script);
-	} catch (err) {
-		logger.error('Failed to inject the initialization script.\nCaused by:', err);
-	}
-}).catch(console.error);
-
-async function checkAutoStart() {
-	const storeUrl = browser.runtime.getURL('./modules/store.mjs');
-	const s = await import(storeUrl).then((/** @type {typeof import("./modules/store.mjs")} */ { store }) => store.load());
-	const enabled = [ false, s?.others?.mode_replay !== 1, true ].at(s?.others?.autostart ?? 0);
-	if (!enabled) return false;
-
-	const container = document.getElementById('show-hide-button');
-	if (!container || container.hidden) return false;
-
-	const button = container.querySelector('button');
-	if (button?.closest('#close-button')) return false;
-
-	button?.click();
-	return true;
-}
-
-function isNormalChatPageMode() {
-	try {
-		if (!/^\/live_chat(?:_replay)?$/.test(location.pathname)) return false;
-		return getAppParams().get('ytcc_app_chat_only') === '1';
-	} catch (_error) {
-		return false;
-	}
-}
-
-function getAppParams() {
-	const url = new URL(location.href);
-	const params = new URLSearchParams(url.search);
-	const hashParams = new URLSearchParams(url.hash.replace(/^#\??/, ''));
-	for (const [key, value] of hashParams) {
-		if (!params.has(key)) params.set(key, value);
-	}
-	return params;
-}
-
-async function applyAppSettingsToStorage(detail) {
-	const storeUrl = browser.runtime.getURL('./modules/store.mjs');
-	const { store } = await import(storeUrl);
-	if (!store.isLoaded) await store.load();
-	const fontSizePx = normalizeFontSize(detail.fontSizePx);
-	if (fontSizePx != null) {
-		store.styles.font_size = `${fontSizePx}px`;
-	}
-	if (typeof detail.showPhoto === 'boolean') {
-		for (const type of Object.keys(store.data.parts)) {
-			if (!('photo' in store.data.parts[type])) continue;
-			store.data.parts[type].photo = detail.showPhoto;
-			store.parts[type] = store.data.parts[type];
 		}
-	}
-}
-
-function readAppSettingsDetail(event) {
-	let detail = {};
-	try {
-		detail = /** @type {CustomEvent} */ (event).detail || {};
-	} catch (_error) {
-	}
-	return {
-		fontSizePx: detail.fontSizePx ?? readAppSetting('data-ytcc-app-lcf-font-size-px', 'ytcc-app-lcf-font-size-px'),
-		showPhoto: typeof detail.showPhoto === 'boolean'
-			? detail.showPhoto
-			: readAppBooleanSetting('data-ytcc-app-lcf-show-photo', 'ytcc-app-lcf-show-photo'),
-	};
-}
-
-function readAppSetting(attrName, storageKey) {
-	try {
-		return document.documentElement.getAttribute(attrName) ?? localStorage.getItem(storageKey);
-	} catch (_error) {
-		return null;
-	}
-}
-
-function readAppBooleanSetting(attrName, storageKey) {
-	const value = readAppSetting(attrName, storageKey);
-	if (value == null) return undefined;
-	return value === '1' || value === 'true';
-}
-
-function normalizeFontSize(value) {
-	const number = Number.parseInt(String(value), 10);
-	if (!Number.isFinite(number)) return null;
-	return Math.min(96, Math.max(12, number));
-}
-	}
+		(function check() {
+			if (document.body) {
+				document.body.dataset.browser = 'browser_specific_settings' in manifest ? 'firefox' : 'chrome';
+				document.addEventListener('yt-action', e => {
+					const name = e.detail?.actionName;
+					switch (name) {
+						case 'ytd-watch-player-data-changed': {
+							const ev = new CustomEvent(name);
+							self.documentPictureInPicture?.window?.dispatchEvent(ev);
+							checkAutoStart();
+						}
+					}
+				});
+			} else {
+				requestAnimationFrame(check);
+			}
+		})();
+	}).catch(err => {
+		console.error(
+			'[%cYTLCF%c...<%c]',
+			'font-family:sans-serif;font-weight:700;padding-right:.33em',
+			'border-radius:.33em;background-color:red;color:white;font-family:sans-serif;font-weight:700;padding:0 .33em',
+			'',
+			'Failed to inject the initialization script.\nCaused by:', err
+		);
+	});
+})();

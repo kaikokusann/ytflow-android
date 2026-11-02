@@ -1,11 +1,18 @@
 import { logger } from '../modules/logging.mjs';
-import { store as s } from '../modules/store.mjs';
+import { DEFAULT_CONFIG, store as s } from '../modules/store.mjs';
 
-// @ts-expect-error
-self.browser ??= chrome;
+import { TranslatorController } from '../modules/translator.mjs';
+
+// @ts-expect-error: Polyfill browser API for Chrome 147 or older environments
+globalThis.browser ??= chrome;
 
 const manifest = browser.runtime.getManifest();
 document.documentElement.dataset.browser = 'browser_specific_settings' in manifest ? 'firefox' : 'chrome';
+
+browser.runtime.getPlatformInfo().then(info => {
+	const platform = ['android', 'ios'].includes(info.os) ? 'mobile' : 'desktop';
+	document.documentElement.dataset.platform = platform;
+});
 
 /** @type {NodeListOf<HTMLElement>} */
 const i18nElems = document.querySelectorAll('[data-i18n]');
@@ -30,8 +37,11 @@ for (const el of i18nPlaceholders) {
 const manifestElems = document.querySelectorAll('[data-manifest]');
 for (const el of manifestElems) {
 	const key = el.dataset.manifest;
-	// @ts-expect-error
-	if (key && key in manifest) el.textContent = manifest[key];
+	if (key && key in manifest) {
+		const k = /** @type {keyof import("npm:@types/webextension-polyfill").Manifest.WebExtensionManifest} */ (key);
+		const v = manifest[k]?.toString();
+		if (v) el.textContent = v;
+	}
 }
 
 const exportBtn = document.getElementById('btn-export');
@@ -42,7 +52,7 @@ exportBtn?.addEventListener('click', () => {
 	a.download = `ytlcf-config-${Date.now()}.json`;
 	a.href = url;
 	a.click();
-}, { passive: true });
+});
 
 const importBtn = document.getElementById('btn-import');
 importBtn?.addEventListener('click', async () => {
@@ -51,134 +61,279 @@ importBtn?.addEventListener('click', async () => {
 	input.accept = 'application/json';
 	input.addEventListener('cancel', () => {
 		logger.debug('Config file import is canceled.');
-	}, { passive: true });
+	});
 	input.addEventListener('change', () => {
 		const files = input.files;
-		if (files && files.length > 0) {
-			logger.debug('Config file selected:', files[0].name);
-			const reader = new FileReader();
-			reader.onload = async e => {
-				const json = JSON.parse(/** @type {string} */ (e.target?.result));
-				await s.load(json);
-				await browser.storage.local.set(s.data);
-				browser.runtime.sendMessage({ fire: 'reloadTabs' });
-			};
-			reader.readAsText(files[0]);
-		}
-	}, { passive: true });
+		if (!files || files.length < 1) return;
+		logger.debug('Config file selected:', files[0].name);
+		const reader = new FileReader();
+		reader.onload = async e => {
+			const json = JSON.parse(/** @type {string} */ (e.target?.result));
+			await s.load(json);
+			await browser.storage.local.set(s.data);
+			browser.runtime.sendMessage({ fire: 'reload' });
+		};
+		reader.readAsText(files[0]);
+	});
 	input.click();
-}, { passive: true });
+});
 
 const initBtn = document.getElementById('btn-init');
 initBtn?.addEventListener('click', async () => {
 	await s.reset();
-	await browser.runtime.sendMessage({ fire: 'reloadTabs' });
-	location.reload();
-}, { passive: true });
+	browser.runtime.sendMessage({ fire: 'reload' });
+});
 
 const saveBtn = /** @type {?HTMLButtonElement} */ (document.getElementById('btn-save'));
 const saveBtnTop = /** @type {?HTMLButtonElement} */ (document.getElementById('btn-save-top'));
 
-const form = document.forms[0];
+const [form, tester] = document.forms;
+let savedFormState;
+const formState = () => JSON.stringify([...new FormData(form)]);
+function updateSaveState() {
+	const changed = savedFormState !== undefined && savedFormState !== formState();
+	if (saveBtn) saveBtn.disabled = !changed;
+	if (saveBtnTop) saveBtnTop.disabled = !changed;
+	if (status) status.hidden = !changed;
+}
+form.addEventListener('input', updateSaveState);
 
 /** @type {Record<string, RadioNodeList>} */
-// @ts-expect-error
-const { mode_livestream, mode_replay, autostart, pip_window_mode, message_pause, person_detection } = form.elements;
+// @ts-expect-error: Properties are not explicitly defined on form.elements
+const {
+	notification_whenUpdated,
+	mode_livestream, mode_replay,
+	autostart,
+	message_pause,
+	person_detector_device,
+	translation_method,
+	translation_bodyType,
+	translation_responseStyle,
+} = form.elements;
 
 /** @type {Record<string, HTMLInputElement>} */
-// @ts-expect-error
+// @ts-expect-error: Properties are not explicitly defined on form.elements
 const {
-	hotkey_layer_key, hotkey_layer_alt,
-	hotkey_panel_key, hotkey_panel_alt,
-	hotkey_pip_key, hotkey_pip_alt,
 	translation_blacklist_regexp,
-	translation_url
+	translation_url, translation_apiKey, translation_modelName,
+} = form.elements;
+
+/**
+ * @typedef HotkeyInputSet
+ * @prop {HTMLInputElement} key
+ * @prop {HTMLInputElement} alt
+ * @prop {HTMLInputElement} insensitive
+ */
+/** @type { { layer: HotkeyInputSet, panel: HotkeyInputSet, pip: HotkeyInputSet } } */
+// @ts-expect-error: Properties are not explicitly defined on form.elements
+const hotkeyInputs = Object.fromEntries(['layer', 'panel', 'pip'].map(feature => [
+	feature,
+	(Object.fromEntries(['key', 'alt', 'insensitive'].map(k => [k, form.elements[`hotkey_${feature}_${k}`]]))),
+]));
+
+/** @type {Record<string, HTMLSelectElement>} */
+// @ts-expect-error: Properties are not explicitly defined on form.elements
+const {
+	person_detector_backend,
+	translation_translator
 } = form.elements;
 
 /** @type {Record<string, HTMLTextAreaElement>} */
-// @ts-expect-error
-const { translation_blacklist } = form.elements;
-/** @type {Record<string, HTMLTextAreaElement>} */
-// @ts-expect-error
-const { translation_translator } = form.elements;
+// @ts-expect-error: Properties are not explicitly defined on form.elements
+const {
+	translation_blacklist,
+	translation_bodyContent,
+} = form.elements;
+
+function updateTranslationControls() {
+	const isPostMethod = translation_method.value === 'POST';
+	const isCustomBody = translation_bodyType.value === 'custom';
+	translation_apiKey.disabled = translation_modelName.disabled = !isPostMethod;
+	translation_apiKey.required = translation_modelName.required = !isCustomBody;
+	translation_bodyContent.disabled = translation_bodyContent.hidden = !isPostMethod || !isCustomBody;
+}
 
 s.load().then(() => {
+	notification_whenUpdated.value = s.others.notification_updated.toString();
 	// mode
 	mode_livestream.value = s.others.mode_livestream.toString();
 	mode_replay.value = s.others.mode_replay.toString();
 
 	// autostart
 	autostart.value = s.others.autostart.toString();
-	pip_window_mode.value = (s.others.pip_window_mode ?? 1).toString();
 
 	// hotkeys
-	hotkey_layer_key.value = s.hotkeys.layer.key ?? s.hotkeys.layer;
-	hotkey_layer_alt.checked = s.hotkeys.layer.alt;
-	hotkey_panel_key.value = s.hotkeys.panel.key ?? s.hotkeys.panel;
-	hotkey_panel_alt.checked = s.hotkeys.panel.alt;
-	hotkey_pip_key.value = s.hotkeys.pip.key;
-	hotkey_pip_alt.checked = s.hotkeys.pip.alt;
+	for (const feature of Object.keys(hotkeyInputs)) {
+		const inputs = hotkeyInputs[feature];
+		inputs.key.value = s.hotkeys[feature].key ?? s.hotkeys[feature];
+		inputs.alt.checked = s.hotkeys[feature].alt;
+		inputs.insensitive.checked = s.hotkeys[feature].insensitive;
+	}
 
 	// message pause
 	message_pause.value = s.others.message_pause.toString();
 
 	// person detection
-	person_detection.value = s.others.person_detection.toString();
+	person_detector_device.value = s.personDetection.device;
+	person_detector_backend.value = s.personDetection.backend;
 
 	// translation
 	/** @type {HTMLInputElement} */
 	(translation_blacklist_regexp).checked = s.translation.regexp;
 	translation_blacklist.value = s.translation.plainList.join('\n');
 	translation_translator.value = s.translation.translator;
+	translation_method.value = s.translation.method;
 	translation_url.value = s.translation.url;
+	translation_bodyType.value = s.translation.bodyType;
+	translation_apiKey.value = s.translation.apiKey;
+	translation_modelName.value = s.translation.modelName;
+	updateTranslationControls();
+	translation_bodyContent.value = s.translation.bodyContent;
+	translation_responseStyle.value = s.translation.responseStyle;
+
+	for (const el of form.querySelectorAll('[data-when-method="POST"]')) {
+		/** @type {HTMLElement} */ (el).hidden = s.translation.method !== 'POST';
+	}
+	savedFormState = formState();
+	updateSaveState();
 });
 
 const status = document.getElementById('status');
-form.addEventListener('change', () => {
-	if (saveBtn) saveBtn.disabled = false;
-	if (saveBtnTop) saveBtnTop.disabled = false;
-	if (status) status.hidden = false;
+form.addEventListener('change', async e => {
+	if (/** @type {HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement} */ (e.target).form !== form) return;
+
+	if (e.target instanceof HTMLInputElement) switch (e.target.name) {
+		case 'notification_whenUpdated':
+		case 'person_detector_device': {
+			const permission = {
+				notification_whenUpdated: /** @type {const} */ ({ name: 'notifications', falsyValue: '0' }),
+				person_detector_device: /** @type {const} */ ({ name: 'trialML', falsyValue: '' }),
+			}[e.target.name];
+			if (e.target.value !== permission.falsyValue) {
+				const granted = await browser.permissions.request({ permissions: [permission.name] }).catch(logger.error);
+				if (!granted) {
+					const radio = form.elements[e.target.name];
+					if (radio instanceof RadioNodeList) radio.value = permission.falsyValue;
+					logger.warn('Permission denied:', permission.name);
+				}
+			}
+			break;
+		}
+		case 'translation_method':
+		case 'translation_bodyType': {
+			updateTranslationControls();
+			if (!translation_bodyContent.disabled) {
+				translation_bodyContent.setCustomValidity((v => {
+					try {
+						const json = JSON.parse(v || '{}');
+						if (typeof json !== 'object' || json === null) throw json;
+						else return '';
+					} catch {
+						return browser.i18n.getMessage('translation_invalidRequestBody');
+					}
+				})(translation_bodyContent.value));
+			}
+			for (const el of form.querySelectorAll('[data-when-method="POST"]')) {
+				/** @type {HTMLElement} */ (el).hidden = translation_method.value !== 'POST';
+			}
+			break;
+		}
+	}
+	updateSaveState();
 });
 
 form.addEventListener('submit', async e => {
 	e.preventDefault();
-	if (Number.parseInt(person_detection.value, 10) > 0) {
-		/** @type { { permissions: ["trialML"] } } */
-		const permission = { permissions: ['trialML'] };
-		const granted = await browser.permissions.request(permission);
-		if (!granted) person_detection.value = '0';
-	}
 
 	const config = {
+		/** @import { FetchingModeEnum } from "../modules/main.mjs" */
 		/** @type {Partial<typeof s.data.others>} */
 		others: {
-			// @ts-expect-error
-			mode_livestream: Number.parseInt(mode_livestream.value, 10),
-			// @ts-expect-error
-			mode_replay: Number.parseInt(mode_replay.value, 10),
+			notification_updated: Number.parseInt(notification_whenUpdated.value, 10),
+			mode_livestream:  /** @type {FetchingModeEnum} */ (Number.parseInt(mode_livestream.value, 10)),
+			mode_replay: /** @type {FetchingModeEnum} */ (Number.parseInt(mode_replay.value, 10)),
 			autostart: Number.parseInt(autostart.value, 10),
-			pip_window_mode: Number.parseInt(pip_window_mode.value, 10),
 			message_pause: Number.parseInt(message_pause.value, 10),
-			person_detection: Number.parseInt(person_detection.value, 10),
 		},
 		/** @type {Partial<typeof s.data.hotkeys>} */
-		hotkeys: {
-			layer: { key: hotkey_layer_key.value, alt: hotkey_layer_alt.checked },
-			panel: { key: hotkey_panel_key.value, alt: hotkey_panel_alt.checked },
-			pip: { key: hotkey_pip_key.value, alt: hotkey_pip_alt.checked },
-		},
+		hotkeys: Object.fromEntries(Object.entries(hotkeyInputs).map(([k, v]) => [
+			k,
+			{ key: v.key.value, alt: v.alt.checked, insensitive: v.insensitive.checked },
+		])),
 		/** @type {Partial<typeof s.data.translation>} */
 		translation: {
 			regexp: /** @type {HTMLInputElement} */ (translation_blacklist_regexp).checked,
 			plainList: translation_blacklist.value.split(/\n+/).filter(s => s.length > 0),
 			translator: /** @type {"external" | "internal"} */ (translation_translator.value),
+			method: /** @type {"GET" | "POST"} */ (translation_method.value),
 			url: translation_url.value,
+			bodyType: /** @type {typeof s.translation.bodyType} */ (translation_bodyType.value),
+			apiKey: translation_apiKey.value,
+			modelName: translation_modelName.value,
+			bodyContent: translation_bodyContent.value,
+			responseStyle: /** @type {typeof s.translation.responseStyle} */ (translation_responseStyle.value),
+		},
+		/** @type {Partial<typeof s.data.personDetection>} */
+		personDetection: {
+			device: /** @type {typeof s.personDetection.device} */ (person_detector_device.value),
+			backend: /** @type {typeof s.personDetection.backend} */ (person_detector_backend.value),
 		},
 	};
 	await s.load(config);
 	await browser.storage.local.set(s.data);
-	if (status) status.hidden = true;
-	if (saveBtn) saveBtn.disabled = true;
-	if (saveBtnTop) saveBtnTop.disabled = true;
+	savedFormState = formState();
+	updateSaveState();
 	location.hash = `ytchat-saved-${Date.now()}`;
+});
+
+tester.addEventListener('submit', e => {
+	e.preventDefault();
+	const test_translation_text = /** @type {HTMLInputElement} */ (tester.elements.test_translation_text);
+	if (!test_translation_text.value.trim()) return;
+
+	const test_translation_output = /** @type {HTMLOutputElement} */ (tester.elements.test_translation_output);
+	const btn = /** @type {?HTMLButtonElement} */ (document.getElementById('btn-test-translation'));
+
+	const mode = /** @type {typeof s.data.translation.translator} */ (translation_translator.value);
+	const config = /** @type {typeof s.data.translation.method} */ (translation_method.value) === 'GET'
+		? {
+			url: translation_url.value,
+			method: /** @type {const} */ ('GET'),
+			responseStyle: /** @type {typeof s.data.translation.responseStyle} */ (translation_responseStyle.value),
+		} : {
+			url: translation_url.value,
+			method: /** @type {const} */ ('POST'),
+			responseStyle: /** @type {typeof s.data.translation.responseStyle} */ (translation_responseStyle.value),
+			apiKey: translation_apiKey.value,
+			modelName: translation_modelName.value,
+			json: translation_bodyType.value === 'OpenAI' ? undefined : translation_bodyContent.value,
+		};
+
+	const controller = new TranslatorController(mode, config);
+
+	test_translation_output.value = '';
+	const timer = setInterval(() => {
+		test_translation_output.value += '.';
+	}, 1000);
+	if (btn) btn.disabled = true;
+
+	controller.translate(test_translation_text.value, navigator.language)
+	.then(res => {
+		test_translation_output.value = JSON.stringify(res);
+	})
+	.catch(err => {
+		logger.error(err);
+		test_translation_output.value = Error.isError(err) && err.stack || String(err);
+	})
+	.finally(() => {
+		clearInterval(timer);
+		if (btn) btn.disabled = false;
+	});
+});
+
+document.getElementById('btn-reset-translation')?.addEventListener('click', () => {
+	translation_method.value = DEFAULT_CONFIG.translation.method;
+	translation_url.value = DEFAULT_CONFIG.translation.url;
+	translation_responseStyle.value = DEFAULT_CONFIG.translation.responseStyle;
+	translation_url.dispatchEvent(new Event('change', { bubbles: true }));
 });

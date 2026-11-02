@@ -1,7 +1,8 @@
 import { logger } from './logging.mjs';
 import { fetchInnerTube } from './innertube.mjs';
 import { store as s } from './store.mjs';
-import { getColorRGB, getText, loadTemplateDocument, refreshWordsList } from './utils.mjs';
+import { getText, getColorRGB } from './utils.mjs';
+import { loadTemplateDocument, refreshWordsList } from './dom_utils.mjs';
 
 const AuthorType = Object.freeze({
 	NORMAL: 'normal',
@@ -47,7 +48,7 @@ export const updateTlExclusionList = () => refreshWordsList(tlExclusionList, s.t
  * @typedef AuthorInfo
  * @prop {string} id
  * @prop {string} name
- * @prop {string} thumbnail
+ * @prop {string} [thumbnail]
  */
 
 /**
@@ -135,7 +136,7 @@ export class LiveChatItemFactory {
 				a.href = `/channel/${options.author.id}`;
 				a.title = options.author.name;
 				const photo = a?.querySelector('img');
-				if (photo) photo.src = options.author.thumbnail;
+				if (photo) photo.src = options.author.thumbnail || '';
 			}
 			const name = header?.querySelector('.name');
 			if (name) name.textContent = options.author.name;
@@ -222,7 +223,7 @@ async function fetchAuthorInfo(renderer, type) {
 	}
 	name ||= getText(renderer.authorName);
 
-	const thumbnail = renderer.authorPhoto.thumbnails[0].url;
+	const thumbnail = renderer.authorPhoto?.thumbnails.at(0)?.url;
 	return { id, name, thumbnail };
 }
 
@@ -241,12 +242,12 @@ export async function renderChatItem(item, factory) {
 	const renderer = item[key];
 	const body = new ChatMessageContainer(renderer.message);
 
-	const targetLangIndex = s.others.translation;
-	if (targetLangIndex && !tlExclusionList.some(rule => rule.test(body.message))) {
-		const suffix = s.others.suffix_original;
-		const tl = navigator.languages[Math.abs(targetLangIndex) - 1];
-		const mode = /** @type {const} */ (['eager', 'lazy']).at(s.others.translation_timing) ?? 'eager';
-		await body.translate(mode, tl, Boolean(suffix));
+	const targetIndex = s.translation.targetIndex;
+	if (targetIndex && !tlExclusionList.some(rule => rule.test(body.message))) {
+		const mode = s.translation.mode;
+		const target = navigator.languages[targetIndex - 1];
+		const suffix = s.translation.suffixOriginal;
+		await body.translate(mode, target, suffix);
 	}
 
 	/** @type {(type: keyof typeof s.parts) => boolean} */
@@ -324,11 +325,34 @@ export async function renderChatItem(item, factory) {
 			});
 			break;
 		}
+		case 'giftMessageViewModel': {
+			const type = 'paid_sticker';
+			skipped = allHidden(type);
+			if (skipped) break;
+			const {
+				authorName,
+				authorAvatar,
+				giftImage,
+				// @ts-expect-error: Type casting required for destructuring GiftMessageViewModel properties
+			} = /** @type {LiveChat.GiftMessageViewModel} */ (renderer);
+			element = factory.new({
+				type,
+				author: {
+					id: '',
+					name: getText(authorName).trim(),
+					thumbnail: authorAvatar.avatarViewModel.image.sources.at(0)?.url ?? '',
+				},
+				amount: '',
+				sticker: giftImage.sources.at(0)?.url ?? '',
+				background: { header: 0xFFFFFFFF, body: 0xFFFFFFFF },
+			});
+			break;
+		}
 		case 'liveChatSponsorshipsGiftPurchaseAnnouncementRenderer': {
 			const subtype = 'membership';
 			skipped = allHidden(subtype);
 			if (skipped) break;
-			// @ts-expect-error
+			// @ts-expect-error: Explicit cast required for nested property type narrowing
 			const headerRenderer = /** @type {LiveChat.SponsorshipsHeaderRenderer} */(renderer.header).liveChatSponsorshipsHeaderRenderer;
 			const count = headerRenderer.primaryText?.runs?.filter(r => !Number.isNaN(Number.parseInt(r.text, 10)))[0]?.text;
 			if (!count) break;
@@ -341,7 +365,7 @@ export async function renderChatItem(item, factory) {
 			break;
 		}
 		case 'liveChatViewerEngagementMessageRenderer': {
-			// @ts-expect-error
+			// @ts-expect-error: Type narrowing needed for renderer subtype
 			switch (renderer.icon?.iconType) {
 				case 'POLL':
 					element = factory.new({ type: 'poll', body });
@@ -369,12 +393,7 @@ const RESOLVED_NULL = Promise.resolve(null);
 const TRANSLATABLE_PATTERN = /[\p{L}]/u;
 const NO_REPEATING_PATTERN = /^\p{L}$|(\p{L})(?!\P{L}*\1)\p{L}/u;
 
-/**
- * @typedef {import("./translator.mjs").LanguageDetection} LanguageDetection
- */
-/**
- * @typedef {import("./translator.mjs").TranslationResult} TranslationResult
- */
+/** @import { TranslationResult } from "./translator.mjs" */
 
 /**
  * Detects each node language async.
@@ -390,11 +409,10 @@ function translateNodesAsync(nodes, target, exceptionLangs) {
 		const translatable = text && TRANSLATABLE_PATTERN.test(text) && NO_REPEATING_PATTERN.test(text);
 		if (!translatable) return null;
 		try {
-			/** @type {LanguageDetection} */
 			const detection = await browser.runtime.sendMessage({ detection: { text } });
 			if (exceptions.includes(detection.source)) return null;
 			const translation = {
-				text: node.textContent,
+				text,
 				source: detection.isReliable ? detection.source : 'auto',
 				target,
 			};
@@ -458,7 +476,7 @@ export class ChatMessageContainer {
 	translate(mode, target, suffix = false) {
 		this.lazy = mode === 'lazy';
 		const srcNodes = this.#rawNode.childNodes;
-		const exceptionLangs = navigator.languages.filter((_, i) => s.others.except_lang >>> i & 1);
+		const exceptionLangs = navigator.languages.filter((_, i) => s.translation.exceptionFlag >>> i & 1);
 
 		this.translating = translateNodesAsync(srcNodes, target, exceptionLangs)
 		.then(results => {

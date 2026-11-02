@@ -1,6 +1,7 @@
 import { logger } from './logging.mjs';
 import { getLiveChatActionsAsyncIterable, getReplayChatActionsAsyncIterable } from './chat_actions.mjs';
-import { NormalChatView } from './chat_controller.mjs';
+import { NormalChatView } from './normal_chat_view.mjs';
+import { store } from './store.mjs';
 import { LiveChatItemFactory, renderChatItem } from './chat_message.mjs';
 
 let started = false;
@@ -17,6 +18,7 @@ export async function initializeNormalChatPage() {
 
 	const view = new NormalChatView();
 	const factory = new LiveChatItemFactory();
+	await store.load();
 	await factory.load();
 	applyUrlSettings();
 	document.documentElement.setAttribute('data-ytlcf-app-normal-chat-enabled', '1');
@@ -27,10 +29,6 @@ export async function initializeNormalChatPage() {
 	installSettingsSync(view);
 	const pacer = new NormalChatActionPacer(view, factory);
 
-	document.addEventListener('ytlcf-action', event => {
-		pacer.enqueue(event.detail || []);
-	}, { passive: true });
-
 	const searchParams = new URL(location.href).searchParams;
 	const appParams = getAppParams();
 	const continuation = searchParams.get('continuation');
@@ -38,9 +36,10 @@ export async function initializeNormalChatPage() {
 	const initialOffset = Number.parseInt(appParams.get('ytcc_chat_offset_ms') || '0', 10);
 
 	const abortController = new AbortController();
+	window.addEventListener('pagehide', () => abortController.abort(), { once: true });
 	try {
 		if (location.pathname === '/live_chat_replay') {
-			for await (const containers of getReplayChatActionsAsyncIterable(abortController.signal, continuation, {
+			for await (const containers of getReplayChatActionsAsyncIterable(abortController.signal, continuation, crypto.randomUUID(), undefined, {
 				auth: false,
 				offset: Number.isFinite(initialOffset) ? initialOffset : 0,
 			})) {

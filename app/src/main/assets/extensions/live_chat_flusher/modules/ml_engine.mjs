@@ -1,21 +1,8 @@
-import { logger } from "./logging.mjs";
-
-/**
- * @typedef MLEngingCreateEngineRequest
- * @prop {string} taskName
- * @prop {"huggingface" | "mozilla"} [modelHub]
- * @prop {string} [modelId]
- * @prop {string} [modelRevision]
- * @prop {string} [tokenizerId]
- * @prop {string} [tokenizerRevision]
- * @prop {string} [processorId]
- * @prop {string} [processorRevision]
- * @prop {string} [dtype]
- * @prop {"wasm" | "gpu"} [device]
- */
+/** @import { MLEngineManagerOptions } from "../../types/ml_engine.d.ts" */
+import { logger } from './logging.mjs';
 
 export class MLEngineManager {
-	/** @type {MLEngingCreateEngineRequest} */
+	/** @type {Partial<MLEngineManagerOptions.PipelineOptions>} */
 	#req;
 	/** @type {?Promise<void>} */
 	#loading = null;
@@ -23,7 +10,7 @@ export class MLEngineManager {
 	#disabledError = null;
 
 	/**
-	 * @param {MLEngingCreateEngineRequest} req
+	 * @param {Partial<MLEngineManagerOptions.PipelineOptions>} req
 	 */
 	constructor(req) {
 		this.#req = req;
@@ -44,7 +31,7 @@ export class MLEngineManager {
 			logger.info(`Successfully created the MLEngine[${this.#req.taskName}]:`, this.#req);
 			this.isReady = true;
 		} catch (cause) {
-			const errMsg = cause instanceof Error ? cause.message : null;
+			const errMsg = Error.isError(cause) ? cause.message : null;
 			if (errMsg?.includes('already created')) {
 				logger.warn(errMsg.replace('Engine', `MLEngine[${this.#req.taskName}]`));
 				this.isReady = true;
@@ -60,7 +47,9 @@ export class MLEngineManager {
 
 	/**
 	 * @param {object} req
-	 * @param {any[]} req.args
+	 * @param {unknown} req.args
+	 * @param {Record<string, unknown>} [req.options]
+	 * @param {Record<string, unknown>} [req.streamerOptions]
 	 */
 	async run(req) {
 		await this.ensureReady();

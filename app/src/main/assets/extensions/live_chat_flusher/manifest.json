@@ -1,65 +1,51 @@
 {
-  "manifest_version": 2,
-  "name": "YouTube LiveChat Flusher",
-  "version": "0.15.11",
-  "description": "Display YouTube live chat over the video.",
-  "author": "_y_s",
-  "default_locale": "en",
-  "homepage_url": "https://github.com/ys-j/YoutubeLiveChatFlusher",
-  "browser_specific_settings": {
-    "gecko": {
-      "id": "youtube-live-chat-flusher@local"
-    }
-  },
-  "permissions": [
-    "storage",
-    "notifications",
-    "*://www.youtube.com/*",
-    "*://m.youtube.com/*"
-  ],
-  "browser_action": {
-    "default_title": "YouTube LiveChat Flusher"
-  },
-  "options_ui": {
-    "page": "options/options.html"
-  },
-  "icons": {
-    "16": "images/icon16.png",
-    "32": "images/icon32.png",
-    "48": "images/icon48.png",
-    "128": "images/icon128.png"
-  },
-  "content_scripts": [
-    {
-      "matches": [
-        "*://www.youtube.com/*",
-        "*://m.youtube.com/*"
-      ],
-      "css": [
-        "styles/content.css"
-      ],
-      "js": [
-        "content.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "*://www.youtube.com/live_chat*",
-        "*://m.youtube.com/live_chat*"
-      ],
-      "all_frames": true,
-      "js": [
-        "chatframe.js"
-      ],
-      "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    "modules/*",
-    "injections/*",
-    "styles/*",
-    "templates/*",
-    "images/*"
-  ]
+	"manifest_version": 3,
+	"name": "__MSG_manifestName__",
+	"version": "0.16.7",
+	"author": "_y_s",
+	"action": {},
+	"background": {
+		"scripts": ["sw.js"],
+		"type": "module"
+	},
+	"browser_specific_settings": {
+		"gecko": {
+			"id": "youtube-live-chat-flusher@local",
+			"strict_min_version": "138.0"
+		},
+		"gecko_android": {
+			"strict_min_version": "138.0"
+		}
+	},
+	"content_scripts": [
+		{
+			"css": ["styles/content.css"],
+			"js": ["content.js"],
+			"matches": ["https://www.youtube.com/*", "https://m.youtube.com/*"]
+		},
+		{
+			"all_frames": true,
+			"js": ["chatframe.js"],
+			"matches": ["https://www.youtube.com/live_chat*"]
+		}
+	],
+	"default_locale": "en",
+	"description": "__MSG_manifestDescription__",
+	"homepage_url": "https://github.com/ys-j/YoutubeLiveChatFlusher",
+	"host_permissions": ["https://www.youtube.com/*", "https://m.youtube.com/*"],
+	"icons": {
+		"48": "images/icon.svg",
+		"128": "images/icon.svg"
+	},
+	"optional_permissions": ["notifications", "trialML"],
+	"options_ui": {
+		"page": "options/options.html"
+	},
+	"permissions": ["scripting", "storage"],
+	"web_accessible_resources": [
+		{
+			"resources": ["modules/*", "injections/*", "styles/*", "templates/*", "images/*"],
+			"matches": ["https://www.youtube.com/*", "https://m.youtube.com/*"]
+		}
+	]
 }

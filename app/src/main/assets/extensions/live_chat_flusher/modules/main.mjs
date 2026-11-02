@@ -1,17 +1,25 @@
 import { logger } from './logging.mjs';
 import { store } from './store.mjs';
-import { getText } from './utils.mjs';
+import { getText, getValueByJSONPointer, matchHotkey } from './utils.mjs';
+import { isAdShowing } from './dom_utils.mjs';
 
 import { LiveChatController } from './chat_controller.mjs';
 import { ReplayActionBuffer, getReplayChatActionsAsyncIterable, getLiveChatActionsAsyncIterable } from './chat_actions.mjs';
 
+const manifest = browser.runtime.getManifest();
+
 const state = {
 	isLive: false,
+	/** @type {"normal" | "low" | "ultralow"} */
+	latency: 'normal',
+	/** @type {"desktop" | "mobile"} */
+	device: 'desktop',
 	action: new ReplayActionBuffer(),
 	abortController: new AbortController(),
 	/** @type {?LiveChatController} */
 	controller: null,
 
+	/** Resets the internal state for the next navigation. */
 	reset() {
 		this.abortController.abort();
 		this.abortController = new AbortController();
@@ -21,15 +29,11 @@ const state = {
 };
 
 const FetchingModeEnum = Object.freeze({
+	MOBILE: -1,
 	DEPENDENT: 0,
 	INDEPENDENT: 1,
 });
 /** @typedef {typeof FetchingModeEnum[keyof typeof FetchingModeEnum]} FetchingModeEnum */
-
-self.addEventListener('ytcc-app-lcf-settings', event => {
-	const detail = readAppSettingsDetail(event);
-	applyAppSettings(detail).catch(error => logger.warn('Failed to apply app settings:', error));
-}, { passive: true });
 
 /**
  * @typedef NavigateFinishEventDetail
@@ -40,229 +44,277 @@ self.addEventListener('ytcc-app-lcf-settings', event => {
  * @prop {any} [response.contents]
  * @prop {any} [response.currentVideoEndpoint]
  * @prop {any} [response.playerOverlays]
+ * @prop {string} [response.page]
  */
 
 /**
- * @param { CustomEvent<NavigateFinishEventDetail> | { target: EventTarget, detail: NavigateFinishEventDetail } } e
+ * @typedef StateNavigateEndEventDetail
+ * @prop {string} href
+ * @prop {object} data
+ * @prop {boolean} data.loading
+ * @prop {object} data.response
+ * @prop {boolean} data.response.loading
+ * @prop {string} data.response.page
+ * @prop {any} data.response.response
+ * @prop {any} data.response.playerResponse
+ */
+
+/**
+ * @param { { target: EventTarget, detail: NavigateFinishEventDetail } } e
  */
 export async function initialize(e) {
 	const player = /** @type {HTMLElement} */ (e.target);
 	state.controller = new LiveChatController(player);
+	state.device = state.controller.device;
+	const navEvtDefs = state.device === 'desktop'
+		? { start: 'yt-navigate-start', end: 'yt-navigate-finish', pointer: '' }
+		: { start: 'state-navigatestart', end: 'state-navigateend', pointer: '/data' };
 	try {
-		await state.controller.start();
-		self.dispatchEvent(new CustomEvent('ytlcf-ready'));
-		onYtNavigateFinish(e);
-		self.addEventListener('yt-navigate-finish', onYtNavigateFinish, { passive: true });
+		const pageType = e.detail.pageType ?? e.detail.response?.page;
+		if (pageType !== 'watch') throw `page-type is not "watch" but "${pageType}"`;
 
-		// Initilize document picture-in-picture
-		const script = document.createElement('script');
-		script.id = 'yt-lcf-pip-script';
-		script.src = browser.runtime.getURL('/injections/pip.mjs');
-		script.type = 'module';
-		script.dataset.paramCssUrl = browser.runtime.getURL('/styles/content.css');
-		script.dataset.paramPipMarkerText = browser.i18n.getMessage('pip_marker');
-		script.dataset.paramHotkeys = JSON.stringify(store.hotkeys);
-		script.dataset.paramPipWindowMode = (store.others.pip_window_mode ?? 1).toString();
-		document.body.append(script);
-	} catch (cause) {
-		logger.warn(`Waiting for next navigation due to setup failure:`, cause);
-		self.addEventListener('yt-navigate-finish', initialize, { once: true, passive: true });
+		await state.controller.start();
+		const applyAppSettings = () => state.controller?.applyAppSettings();
+		self.addEventListener('ytcc-app-lcf-settings', applyAppSettings);
+		applyAppSettings();
+		logger.info(`${manifest.name} is ready!`);
+
+		onYtNavigateFinish(pageType, e.detail.response).catch(logger.error);
+		self.addEventListener(navEvtDefs.end, e => {
+			const data = getValueByJSONPointer(e.detail, navEvtDefs.pointer + '/response');
+			onYtNavigateFinish(data.page, data).catch(logger.error);
+		});
+
+		if (state.device === 'desktop') {
+			// Initilize document picture-in-picture
+			const results = await browser.runtime.sendMessage({
+				injection: 'pip',
+				details: {
+					cssUrl: browser.runtime.getURL('/styles/content.css'),
+					pipMarkerText: browser.i18n.getMessage('pip_marker'),
+					utilsPath: browser.runtime.getURL('/modules/utils.mjs'),
+					hotkeys: store.data.hotkeys,
+				},
+			});
+			for (const r of results) {
+				if (r?.error) {
+					// @ts-expect-error: r.error is an object with name and message properties
+					const { name = 'AbortError', message = '' } = r.error;
+					logger.warn(new DOMException(message, name));
+				}
+			}
+		}
+	} catch (reason) {
+		logger.warn(`Waiting for next navigation due to setup failure:`, reason);
+		self.addEventListener(navEvtDefs.end, e => {
+			initialize({
+				target: player,
+				detail: getValueByJSONPointer(e.detail, navEvtDefs.pointer),
+			});
+		}, { once: true });
 		return;
 	}
 
-	self.addEventListener('yt-navigate-start', () => {
-		state.reset();
-	}, { passive: true });
+	self.addEventListener(navEvtDefs.start, () => state.reset());
 
 	document.body.addEventListener('keydown', e => {
 		if (e.repeat) return;
 		if (e.ctrlKey || e.metaKey) return;
-		switch (e.key) {
-			case store.hotkeys.layer.key:
-				if (e.altKey === store.hotkeys.layer.alt) {
-					const checkbox = /** @type {?HTMLElement} */ (player.querySelector('#yt-lcf-cb'));
-					checkbox?.click();
-				}
+		const selectorMap = {
+			layer: '#yt-lcf-cb',
+			panel: '#yt-lcf-pm',
+			pip: '#yt-lcf-pp',
+		};
+		for (const [feat, selector] of Object.entries(selectorMap)) {
+			if (matchHotkey(e, store.hotkeys[feat])) {
+				const trigger = /** @type {?HTMLElement} */ (player.querySelector(selector));
+				trigger?.click();
 				break;
-			case store.hotkeys.panel.key:
-				if (e.altKey === store.hotkeys.panel.alt) {
-					const popupmenu = /** @type {?HTMLElement} */ (player.querySelector('#yt-lcf-pm'));
-					popupmenu?.click();
-				}
-				break;
-			case store.hotkeys.pip.key:
-				if (e.altKey === store.hotkeys.pip.alt) {
-					const pipmenu = /** @type {?HTMLElement} */ (player.querySelector('#yt-lcf-pp'));
-					pipmenu?.click();
-				}
-				break;
+			}
 		}
-	}, { passive: true });
-
-	/** @type {?HTMLVideoElement} */
-	const video = document.querySelector('#movie_player video');
-	video?.addEventListener('ratechange', function () {
-		sessionStorage.setItem('yt-player-playback-rate', `{"data":"${this.playbackRate}"}`);
 	}, { passive: true });
 }
 
+const toggle = {
+	get element() { return state.controller?.player?.querySelector('#yt-lcf-cb'); },
+	disable() { this.element?.setAttribute('aria-disabled', 'true'); },
+	enable() { this.element?.setAttribute('aria-disabled', 'false'); },
+};
+/** @param {string} nonce */
+const startListening = nonce => {
+	const controller = state.controller;
+	if (controller) {
+		if (!state.isLive) controller.panel.element.dataset.latency = state.latency;
+		controller.listen(nonce);
+		toggle.enable();
+	} else {
+		logger.error('Failed to start observing chat events: Controller was lost.');
+	}
+};
+
 /**
- * @param { CustomEvent<NavigateFinishEventDetail> | { target: EventTarget, detail: NavigateFinishEventDetail } } e
+ * @param {string} pageType
+ * @param {any} response
  */
-async function onYtNavigateFinish(e) {
-	if (e.detail?.pageType !== 'watch') return;
-	const toggle = state.controller?.player.querySelector('#yt-lcf-cb');
-	toggle?.setAttribute('aria-disabled', 'true');
+async function onYtNavigateFinish(pageType, response) {
+	if (pageType !== 'watch') return;
+	toggle.disable();
+	delete state.controller?.panel.element.dataset.latency;
 
 	/** @type {?HTMLVideoElement | undefined} */
 	const video = (self.documentPictureInPicture?.window || self)?.document.querySelector('#movie_player video');
 	const videoContainer = video?.parentElement;
 	if (!videoContainer) return;
-	const parent = videoContainer.parentElement;
-	if (state.controller?.layer && parent?.contains(state.controller.layer.element)) {
-		videoContainer.after(state.controller.layer.element);
-	}
-	const mainResponse = e.detail?.response;
-	const response = (mainResponse && 'contents' in mainResponse) ? mainResponse : mainResponse?.response;
-	if (!response) return;
-	const videoDetails = mainResponse?.playerResponse?.videoDetails
-		|| mainResponse.contents?.twoColumnWatchNextResults?.results?.results?.contents?.at(0)?.videoPrimaryInfoRenderer?.viewCount?.videoViewCountRenderer;
+	if (state.controller?.layer) videoContainer.after(state.controller.layer.element);
+
+	const res = (response && 'contents' in response) ? response : response?.response;
+	if (!res) return;
+
+	const videoDetails = response?.playerResponse?.videoDetails
+		|| response.contents?.twoColumnWatchNextResults?.results?.results?.contents?.at(0)?.videoPrimaryInfoRenderer?.viewCount?.videoViewCountRenderer;
+	/** @type {Record<string, string | boolean | undefined>} */
 	const info = {
-		videoId: videoDetails.videoId || mainResponse.currentVideoEndpoint?.watchEndpoint?.videoId,
-		title: videoDetails.title || getText(mainResponse.playerOverlays?.playerOverlayRenderer?.videoDetails?.playerOverlayVideoDetailsRenderer?.title),
+		videoId: videoDetails?.videoId || response.currentVideoEndpoint?.watchEndpoint?.videoId,
+		title: videoDetails?.title || getText(response.playerOverlays?.playerOverlayRenderer?.videoDetails?.playerOverlayVideoDetailsRenderer?.title),
 	};
-	state.isLive = videoDetails?.isLive || videoDetails?.isUpcoming || false;
+	if (videoDetails) {
+		const props = ['isLiveContent', 'isLowLatencyLiveStream', 'latencyClass'];
+		for (const k of props) {
+			const v = videoDetails[k];
+			if (v !== undefined) info[k] = v;
+		}
+	}
+	state.isLive = info.isLive = videoDetails?.isLive
+		|| videoDetails?.isUpcoming
+		|| getText(response.playerOverlays?.playerOverlayRenderer?.liveIndicatorText)
+		|| false;
+	state.latency = (info => {
+		if (`${info.latencyClass}`.endsWith('LATENCY_ULTRA_LOW')) return 'ultralow';
+		if (`${info.latencyClass}`.endsWith('LATENCY_LOW') || info.isLowLatencyLiveStream) return 'low';
+		return 'normal';
+	})(info);
 
 	const videoType = state.isLive ? 'livestream' : 'replay';
-	const modeValue = store.others?.[`mode_${videoType}`] ?? FetchingModeEnum.INDEPENDENT;
+	const modeValue = state.device === 'mobile' ? FetchingModeEnum.MOBILE : store.others?.[`mode_${videoType}`] ?? FetchingModeEnum.INDEPENDENT;
 
+	const signal = state.abortController.signal;
+	const nonce = await browser.runtime.sendMessage({ fire: 'getNonce' });
+	if (signal.aborted) return;
+	if (typeof nonce !== 'string') {
+		const { name = 'NotFoundError', message } = nonce.error ?? {};
+		throw new DOMException(message, name);
+	}
+
+	/** @type {?string} */
+	let initialContinuation = null;
 	switch (modeValue) {
 		case FetchingModeEnum.DEPENDENT:
-			logger.info(`Running in dependent mode for ${videoType} (${info.videoId}):`, info.title);
-			document.addEventListener('ytlcf-start', () => {
-				state.controller?.listen();
-				toggle?.removeAttribute('aria-disabled');
-			}, { passive: true });
+			logger.info(`Running in dependent mode for ${videoType}:`, info);
+			document.addEventListener(`ytlcf-start:${nonce}`, e => {
+				startListening(nonce);
+				// Acknowledge only after the chat receiver is listening.
+				e.preventDefault();
+			}, { signal });
 			break;
+		case FetchingModeEnum.MOBILE: {
+			const desktopContent = await browser.runtime.sendMessage({
+				request: { url: `https://www.youtube.com/watch?v=${info.videoId}&app=desktop` },
+				contentType: 'text',
+			});
+			let warning = null;
+			if (!desktopContent || 'error' in desktopContent) {
+				warning = 'Failed to fetch the desktop page from mobile mode:';
+			} else {
+				const pat = /"continuations":\s*\[\s*\{\s*"reloadContinuationData":\s*\{\s*"continuation":\s*"([^"]+)"/;
+				const match = desktopContent.data.match(pat)?.at(1);
+				if (match) initialContinuation = match;
+				else warning = 'Failed to fetch the chats in mobile mode (this video has no chat):';
+			}
+			if (warning) {
+				logger.warn(warning, info);
+				break;
+			} else {
+				logger.info(`Running in mobile mode for ${videoType}:`, info);
+			}
+		}
+		// falls through
 		case FetchingModeEnum.INDEPENDENT: {
 			const timer = setInterval(() => {
 				if (state.action.size > 0) {
 					clearInterval(timer);
 					video.addEventListener('seeking', onSeeking, { passive: true });
+					video.addEventListener('ratechange', onRateChange, { passive: true });
 					video.addEventListener('timeupdate', onTimeUpdate, { passive: true });
 				}
 			}, 250);
 			video.removeEventListener('seeking', onSeeking);
+			video.removeEventListener('ratechange', onRateChange);
 			video.removeEventListener('timeupdate', onTimeUpdate);
 
-			const liveChatRenderer = response?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRenderer
-				?? response?.contents?.singleColumnWatchNextResults?.results?.results;
+			const liveChatRenderer = res?.contents?.twoColumnWatchNextResults?.conversationBar?.liveChatRenderer
+				?? res?.contents?.singleColumnWatchNextResults?.results?.results;
 			/** @type {?string} */
-			const initialContinuation = liveChatRenderer?.continuations?.at(0)?.reloadContinuationData?.continuation;
+			initialContinuation ||= liveChatRenderer?.continuations?.at(0)?.reloadContinuationData?.continuation;
 			if (initialContinuation) {
-				logger.info(`Running in independent mode for ${videoType} (${info.videoId}):`, info.title);
-				state.controller?.listen();
-				toggle?.removeAttribute('aria-disabled');
+				logger.info(`Running in independent mode for ${videoType}:`, info);
+				startListening(nonce);
 				if (state.isLive) {
 					const generator = getLiveChatActionsAsyncIterable(state.abortController.signal, initialContinuation);
 					for await (const actions of generator) {
-						const ev = new CustomEvent('ytlcf-action', { detail: actions });
+						const ev = new CustomEvent(`ytlcf-action:${nonce}`, { detail: actions });
 						document.dispatchEvent(ev);
 					}
 				} else {
-					setTimeout(() => onSeeking.call(video), 250);
-					const generator = getReplayChatActionsAsyncIterable(state.abortController.signal, initialContinuation);
+					setTimeout(() => {
+						onSeeking.call(video);
+						onRateChange.call(video);
+					}, 250);
+					const generator = getReplayChatActionsAsyncIterable(state.abortController.signal, initialContinuation, nonce, video);
 					for await (const actions of generator) {
 						state.action.pushActions(actions);
 					}
 				}
 			} else {
 				logger.warn('Failed to fetch the chats in independent mode (this video has no chat):', info);
-				logger.info('Falling back to dependent chat frame events:', info);
-				state.controller?.listen();
-				toggle?.removeAttribute('aria-disabled');
 			}
 			clearInterval(timer);
 			break;
 		}
 	}
-}
 
-/**
- * @this {HTMLVideoElement}
- */
-function onSeeking() {
-	const shiftSec = !state.isLive && store.others.time_shift || 0;
-	const currentOffset = (this.currentTime - shiftSec) * 1000 | 0;
-	const ev = new CustomEvent('ytlcf-seek', { detail: { offset: currentOffset } });
-	state.abortController.signal.dispatchEvent(ev);
-	state.action.update(currentOffset);
-}
+	/**
+	 * @this {HTMLVideoElement}
+	 */
+	function onSeeking() {
+		const shiftSec = !state.isLive && store.others[`time_shift_${state.latency}`] || 0;
+		this.setAttribute('data-shift-sec', shiftSec.toFixed(1));
+		const currentOffset = (this.currentTime - shiftSec) * 1000 | 0;
+		const ev = new CustomEvent(`ytlcf-seek:${nonce}`, { detail: { offset: currentOffset } });
+		state.abortController.signal.dispatchEvent(ev);
+		state.action.update(currentOffset);
+	}
 
-/**
- * @this {HTMLVideoElement}
- */
-function onTimeUpdate() {
-	const shiftSec = !state.isLive && store.others.time_shift || 0;
-	const player = state.controller?.layer.element.parentElement;
-	if (player) {
-		const isAdShowing = ['ad-showing', 'ad-interrupting'].map(c => player.classList.contains(c)).includes(true);
-		if (isAdShowing) return;
+	/**
+	 * @this {HTMLVideoElement}
+	 */
+	function onRateChange() {
+		const ev = new CustomEvent(`ytlcf-ratechange:${nonce}`, { detail: { rate: this.playbackRate } });
+		state.abortController.signal.dispatchEvent(ev);
 	}
-	const currentOffset = (this.currentTime - shiftSec) * 1000 | 0;
-	const pendingActions = state.action.getPendingActions(currentOffset);
-	if (pendingActions.length > 0) {
-		const ev = new CustomEvent('ytlcf-action', { detail: pendingActions });
-		document.dispatchEvent(ev);
-	}
-}
 
-async function applyAppSettings(detail) {
-	if (state.controller?.applyAppSettings(detail)) return;
-	if (!store.isLoaded) await store.load();
-	const fontSizePx = normalizeFontSize(detail.fontSizePx);
-	if (fontSizePx != null) {
-		store.styles.font_size = `${fontSizePx}px`;
-	}
-	if (typeof detail.showPhoto === 'boolean') {
-		for (const type of Object.keys(store.data.parts)) {
-			if (!('photo' in store.data.parts[type])) continue;
-			store.data.parts[type].photo = detail.showPhoto;
-			store.parts[type] = store.data.parts[type];
+	/**
+	 * @this {HTMLVideoElement}
+	 */
+	function onTimeUpdate() {
+		const shiftSec = !state.isLive && store.others[`time_shift_${state.latency}`] || 0;
+		this.setAttribute('data-shift-sec', shiftSec.toFixed(1));
+		const player = state.controller?.layer.element.parentElement;
+		if (player && isAdShowing(player)) return;
+		const currentOffset = (this.currentTime - shiftSec) * 1000 | 0;
+		const pendingActions = state.action.getPendingActions(currentOffset);
+		if (pendingActions.length > 0) {
+			const ev = new CustomEvent(`ytlcf-action:${nonce}`, { detail: pendingActions });
+			document.dispatchEvent(ev);
 		}
 	}
-}
-
-function readAppSettingsDetail(event) {
-	let detail = {};
-	try {
-		detail = /** @type {CustomEvent} */ (event).detail || {};
-	} catch (_error) {
-	}
-	return {
-		fontSizePx: detail.fontSizePx ?? readAppSetting('data-ytcc-app-lcf-font-size-px', 'ytcc-app-lcf-font-size-px'),
-		showPhoto: typeof detail.showPhoto === 'boolean'
-			? detail.showPhoto
-			: readAppBooleanSetting('data-ytcc-app-lcf-show-photo', 'ytcc-app-lcf-show-photo'),
-	};
-}
-
-function readAppSetting(attrName, storageKey) {
-	try {
-		return document.documentElement.getAttribute(attrName) ?? localStorage.getItem(storageKey);
-	} catch (_error) {
-		return null;
-	}
-}
-
-function readAppBooleanSetting(attrName, storageKey) {
-	const value = readAppSetting(attrName, storageKey);
-	if (value == null) return undefined;
-	return value === '1' || value === 'true';
-}
-
-function normalizeFontSize(value) {
-	const number = Number.parseInt(String(value), 10);
-	if (!Number.isFinite(number)) return null;
-	return Math.min(96, Math.max(12, number));
 }

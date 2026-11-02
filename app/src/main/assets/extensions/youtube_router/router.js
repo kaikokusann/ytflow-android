@@ -1,23 +1,21 @@
 (() => {
-  const CHAT_CLOSED_KEY = 'ytcc-router-chat-closed';
-  const FULLSCREEN_ASSIST_KEY = 'ytcc-router-fullscreen-assist';
   const OPEN_VIDEO_PATH = '/ytcc-open-video';
   const APP_FLAG_PARAMS = {
     ytcc_app_ycc: 'ytcc-app-ycc-enabled',
     ytcc_app_lcf: 'ytcc-app-lcf-enabled',
-    ytcc_app_fsassist: FULLSCREEN_ASSIST_KEY
+    ytcc_app_dvr: 'ytcc-app-dvr-enabled'
   };
   const STRIP_ONLY_APP_PARAMS = [
+    'ytcc_app_fsassist',
     'ytcc_app_chat_only',
     'ytcc_app_normal_chat_font_scale',
     'ytcc_app_normal_chat_interval_ms',
     'ytcc_app_normal_chat_show_name',
     'ytcc_app_normal_chat_show_photo'
   ];
-  const CHAT_CLOSED_CLASS = 'ytcc-chat-closed';
   const PIP_CLASS = 'ytcc-app-pip';
   const COMPACT_DESKTOP_CLASS = 'ytcc-compact-desktop';
-  const CHAT_CSS = `
+  const APP_LAYOUT_CSS = `
     html.${COMPACT_DESKTOP_CLASS}:not(.${PIP_CLASS}):not(.ytcc-app-fullscreen),
     html.${COMPACT_DESKTOP_CLASS}:not(.${PIP_CLASS}):not(.ytcc-app-fullscreen) body {
       overflow-x: hidden !important;
@@ -167,108 +165,6 @@
       pointer-events: none !important;
       visibility: hidden !important;
     }
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #columns {
-      display: block !important;
-    }
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #primary,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #primary-inner,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player-container,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player-container-inner,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player-theater-container,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy ytd-player,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #ytd-player,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #movie_player,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy .html5-video-player,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy .html5-video-container,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy .html5-main-video,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy .ytp-player-content,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy .ytp-chrome-bottom,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy .ytp-progress-bar-container {
-      width: 100% !important;
-      max-width: none !important;
-      flex-basis: 100% !important;
-    }
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy[fullscreen] #movie_player,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy[fullscreen] .html5-video-player {
-      width: 100vw !important;
-      max-width: 100vw !important;
-    }
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy[fullscreen] .ytp-chrome-bottom {
-      left: 12px !important;
-      width: calc(100vw - 24px) !important;
-    }
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy[fullscreen] .ytp-progress-bar-container {
-      width: calc(100vw - 24px) !important;
-    }
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS},
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} body {
-      background: #000 !important;
-      height: 100vh !important;
-      margin: 0 !important;
-      overflow: hidden !important;
-      padding: 0 !important;
-      width: 100vw !important;
-    }
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-app,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #columns,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #primary,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #primary-inner,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player-container,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player-container-inner,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player-theater-container,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy ytd-player,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #ytd-player,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #movie_player,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy .html5-video-player,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy .html5-video-container {
-      box-sizing: border-box !important;
-      height: 100vh !important;
-      left: 0 !important;
-      margin: 0 !important;
-      max-height: 100vh !important;
-      max-width: 100vw !important;
-      min-height: 0 !important;
-      min-width: 0 !important;
-      padding: 0 !important;
-      top: 0 !important;
-      width: 100vw !important;
-    }
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player-container,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #player-container-inner,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy #movie_player,
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy .html5-video-player {
-      position: fixed !important;
-    }
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy .html5-main-video {
-      height: 100vh !important;
-      left: 0 !important;
-      object-fit: contain !important;
-      top: 0 !important;
-      width: 100vw !important;
-    }
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy .ytp-chrome-bottom {
-      bottom: 0 !important;
-      left: 12px !important;
-      width: calc(100vw - 24px) !important;
-    }
-    html.ytcc-app-fullscreen.${CHAT_CLOSED_CLASS} ytd-watch-flexy .ytp-progress-bar-container {
-      width: calc(100vw - 24px) !important;
-    }
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #secondary,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #secondary-inner,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy #chat,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy ytd-live-chat-frame,
-    html.${CHAT_CLOSED_CLASS} ytd-watch-flexy ytd-engagement-panel-section-list-renderer[target-id*="chat"] {
-      display: none !important;
-      width: 0 !important;
-      min-width: 0 !important;
-      max-width: 0 !important;
-      flex-basis: 0 !important;
-    }
   `;
   const VIDEO_PATHS = new Set(['/watch']);
   const MOBILE_PATH_PREFIXES = [
@@ -313,106 +209,18 @@
     location.href = handoffUrl.toString();
   }
 
-  function installChatClosedStyle() {
-    if (document.getElementById('ytcc-router-chat-style')) return;
+  function installAppLayoutStyle() {
+    if (document.getElementById('ytcc-router-layout-style')) return;
     const style = document.createElement('style');
-    style.id = 'ytcc-router-chat-style';
-    style.textContent = CHAT_CSS;
+    style.id = 'ytcc-router-layout-style';
+    style.textContent = APP_LAYOUT_CSS;
     (document.head || document.documentElement).appendChild(style);
   }
 
-  function setChatClosedLayout(enabled) {
-    installChatClosedStyle();
-    document.documentElement.classList.toggle(CHAT_CLOSED_CLASS, enabled && isWatchLikePage());
-  }
-
   function setCompactDesktopLayout() {
-    installChatClosedStyle();
+    installAppLayoutStyle();
     const enabled = location.hostname === 'www.youtube.com' && isWatchLikePage();
     document.documentElement.classList.toggle(COMPACT_DESKTOP_CLASS, enabled);
-  }
-
-  function rememberChatClosed(enabled) {
-    try {
-      if (enabled) sessionStorage.setItem(CHAT_CLOSED_KEY, '1');
-      else sessionStorage.removeItem(CHAT_CLOSED_KEY);
-    } catch (_error) {
-      // sessionStorage can be unavailable in rare embedded states.
-    }
-    setChatClosedLayout(enabled);
-  }
-
-  function shouldTreatAsChatClose(target) {
-    if (!(target instanceof Element)) return false;
-    const button = target.closest('button, yt-button-shape, tp-yt-paper-icon-button, .yt-spec-button-shape-next');
-    if (!button) return false;
-    const chatContainer = button.closest('#chat, ytd-live-chat-frame, ytd-engagement-panel-section-list-renderer[target-id*="chat"]');
-    if (!chatContainer) return false;
-
-    const label = [
-      button.getAttribute('aria-label'),
-      button.getAttribute('title'),
-      button.textContent
-    ].filter(Boolean).join(' ');
-    if (/(閉じる|close|hide|×|✕|✖)/i.test(label)) return true;
-
-    const icon = button.querySelector('yt-icon, svg, path');
-    return Boolean(icon && /close/i.test(icon.getAttribute('icon') || icon.getAttribute('d') || ''));
-  }
-
-  function shouldTreatAsChatOpen(target) {
-    if (!(target instanceof Element)) return false;
-    const button = target.closest('button, yt-button-shape, tp-yt-paper-button, .yt-spec-button-shape-next');
-    if (!button) return false;
-    const label = [
-      button.getAttribute('aria-label'),
-      button.getAttribute('title'),
-      button.textContent
-    ].filter(Boolean).join(' ');
-    return /(チャット|chat|コメント|comments)/i.test(label);
-  }
-
-  function isFullScreenAssistEnabled() {
-    try {
-      return localStorage.getItem(FULLSCREEN_ASSIST_KEY) === '1';
-    } catch (_error) {
-      return false;
-    }
-  }
-
-  function shouldTreatAsFullScreenButton(target) {
-    if (!(target instanceof Element)) return false;
-    return Boolean(target.closest('.ytp-fullscreen-button'));
-  }
-
-  function requestAssistedFullScreen() {
-    const target =
-      document.querySelector('#movie_player') ||
-      document.querySelector('ytd-player') ||
-      document.querySelector('#player-container') ||
-      document.documentElement;
-    setTimeout(() => {
-      if (!document.fullscreenElement && target.requestFullscreen) {
-        target.requestFullscreen().catch(() => {});
-      }
-    }, 80);
-  }
-
-  function restoreRememberedChatLayout() {
-    let shouldClose = false;
-    try {
-      shouldClose = sessionStorage.getItem(CHAT_CLOSED_KEY) === '1';
-    } catch (_error) {
-      shouldClose = false;
-    }
-    setChatClosedLayout(shouldClose);
-  }
-
-  function shouldAcceptMessage(event) {
-    if (event.origin !== 'https://www.youtube.com') return false;
-    const data = event.data;
-    if (!data || typeof data !== 'object') return false;
-    return data.ytccAction === 'close-chat';
   }
 
   function targetFor(rawUrl) {
@@ -465,11 +273,6 @@
       return;
     }
     setCompactDesktopLayout();
-    if (!isWatchLikePage()) {
-      rememberChatClosed(false);
-    } else {
-      restoreRememberedChatLayout();
-    }
   }
 
   document.addEventListener('click', event => {
@@ -483,27 +286,8 @@
         return;
       }
     }
-    if (!isWatchLikePage()) return;
-    if (isFullScreenAssistEnabled() && shouldTreatAsFullScreenButton(event.target)) {
-      requestAssistedFullScreen();
-      return;
-    }
-    if (shouldTreatAsChatClose(event.target)) {
-      setTimeout(() => rememberChatClosed(true), 120);
-      return;
-    }
-    if (shouldTreatAsChatOpen(event.target)) {
-      rememberChatClosed(false);
-    }
   }, true);
 
-  addEventListener('message', event => {
-    if (!shouldAcceptMessage(event)) return;
-    if (!isWatchLikePage()) return;
-    rememberChatClosed(true);
-  });
-
-  addEventListener('DOMContentLoaded', restoreRememberedChatLayout, { once: true });
   route();
 
   const pushState = history.pushState;

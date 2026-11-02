@@ -1,5 +1,6 @@
 import { store as s } from './store.mjs';
-import { isNotPip, loadTemplateDocument } from './utils.mjs';
+import { toPascalCase } from './utils.mjs';
+import { isNotPip, loadTemplateDocument } from './dom_utils.mjs';
 
 import { EmojiModeEnum, MutedWordModeEnum, updateMutedWordsList } from './chat_message.mjs';
 
@@ -63,7 +64,7 @@ export class LiveChatPanel {
 		const onmouseup = () => {
 			self.removeEventListener('mousemove', onmousemove);
 			self.removeEventListener('mouseup', onmouseup);
-			window.removeEventListener('mouseup', onmouseup);
+			top?.removeEventListener('mouseup', onmouseup);
 		};
 		this.element.addEventListener('mousedown', e => {
 			const tagName = /** @type {HTMLElement} */ (e.target)?.tagName;
@@ -72,7 +73,7 @@ export class LiveChatPanel {
 			c.y = e.clientY;
 			self.addEventListener('mousemove', onmousemove, { passive: true });
 			self.addEventListener('mouseup', onmouseup, { passive: true });
-			window.addEventListener('mouseup', onmouseup, { passive: true });
+			top?.addEventListener('mouseup', onmouseup, { passive: true });
 		}, { passive: true });
 		this.element.addEventListener('keyup', e => {
 			e.stopPropagation();
@@ -110,7 +111,7 @@ export class LiveChatPanel {
 		/** @param {string[]} c */
 		const createButtonClassList = (...c) => {
 			const base = 'ytSpecButtonShapeNext';
-			const list = c.map(v => base + v.replace(/(?:^|-+)(\w)/g, (_, p1) => p1.toUpperCase()));
+			const list = c.map(v => base + toPascalCase(v));
 			list.unshift(base);
 			return list.join(' ');
 		};
@@ -196,12 +197,12 @@ export class LiveChatPanel {
 			return li;
 		};
 
-		if ('queryLocalFonts' in window && template) {
+		if ('queryLocalFonts' in self && template) {
 			button.after(dialog);
 			const form = dialog.querySelector('form');
 			const ol = dialog.querySelector('ol');
 			const select = dialog.querySelector('select');
-			window.queryLocalFonts?.().then(fonts => {
+			self.queryLocalFonts?.().then(fonts => {
 				if (select) {
 					const families = new Set(fonts.map(f => f.family));
 					select.append(...Array.from(families, f => new Option(f, f)));
@@ -285,7 +286,7 @@ export class LiveChatPanel {
 			const onmouseup = () => {
 				self.removeEventListener('mousemove', onmousemove);
 				self.removeEventListener('mouseup', onmouseup);
-				window.removeEventListener('mouseup', onmouseup);
+				top?.removeEventListener('mouseup', onmouseup);
 			};
 			/** @type {(e: MouseEvent) => void} */
 			const onmousedown = e => {
@@ -294,7 +295,6 @@ export class LiveChatPanel {
 				c.y = e.clientY;
 				self.addEventListener('mousemove', onmousemove, { passive: true });
 				self.addEventListener('mouseup', onmouseup, { passive: true });
-				window.addEventListener('mouseup', onmouseup, { passive: true });
 			};
 
 			/** @type { (e: MouseEvent) => void } */
@@ -318,7 +318,7 @@ export class LiveChatPanel {
 						top: ((le.offsetTop - vc.clientTop) / vc.clientHeight) * 100,
 						width: (le.clientWidth / vc.clientWidth) * 100,
 						height: (le.clientHeight / vc.clientHeight) * 100,
-					}
+					};
 					for (const [prop, val] of Object.entries(percents)) {
 						if (val === defaults[prop]) {
 							styleMap.delete(prop);
@@ -390,11 +390,11 @@ export class LiveChatPanel {
 						text += '}';
 					}
 					const invalidLN = lines.map((id, i) => !id || pattern.test(id) ? -1 : i + 1).filter(v => v > 0);
-					const validityMsg = invalidLN.length > 0 ? browser.i18n.getMessage('validation_channelId', invalidLN.join()) : '';
+					const validityMsg = invalidLN.length > 0 ? browser.i18n.getMessage('validation_channelId', invalidLN.join(', ')) : '';
 					textarea.setCustomValidity(validityMsg);
 					preview.value = text;
 				}, { passive: true });
-				form.addEventListener('submit', _ => {
+				form.addEventListener('submit', () => {
 					const textarea = /** @type {HTMLTextAreaElement | undefined} */ (this.form?.elements.user_defined_css);
 					if (textarea) {
 						textarea.value += '\n' + preview.value;
@@ -447,51 +447,56 @@ export class LiveChatPanel {
 		const ctrls = this.form?.elements;
 		if (!ctrls) return;
 		if (elem.tagName === 'SELECT') {
-			if (name in s.others) {
-				const val = Number.parseInt(elem.value, 10);
-				if (name === 'translation') {
+			const val = Number.parseInt(elem.value, 10);
+			switch (name) {
+				case 'translation': {
 					const prefix = /** @type {HTMLInputElement} */ (ctrls.prefix_lang);
 					const suffix = /** @type {HTMLInputElement} */ (ctrls.suffix_original);
 					prefix.disabled = suffix.disabled = val === 0;
-					s.others[name] = val * (prefix.checked ? -1 : 1);
+					s.translation.targetIndex = val;
 					le.classList[prefix.checked ? 'add' : 'remove']('prefix_lang');
 					const cb = /** @type {NodeListOf<HTMLInputElement>} */ (ctrls.except_lang);
 					if (val) {
 						const i = Math.abs(val) - 1;
 						cb[i].checked = true;
 						for (let j = 0; j < cb.length; j++) cb[j].disabled = i === j;
-						s.others.except_lang |= 1 << i;
+						s.translation.exceptionFlag |= 1 << i;
 					} else {
 						for (const e of cb) e.disabled = true;
 					}
-				} else {
-					// @ts-expect-error
+					break;
+				}
+				case 'muted_words_mode': {
+					const mode = /** @type {MutedWordModeEnum} */ (val);
+					s.mutedWords.mode = mode;
+					const replacement = /** @type {HTMLInputElement} */ (ctrls.muted_words_replacement);
+					replacement.title = mode === MutedWordModeEnum.CHAR ? browser.i18n.getMessage('tooltip_mutedWordsReplacement') : '';
+					break;
+				}
+				default: {
+					if (!(name in s.others)) break;
+					// @ts-expect-error: Dynamic property access
 					s.others[name] = val;
-				}
-				switch (name) {
-					case 'emoji': {
-						le.setAttribute('data-emoji', Object.keys(EmojiModeEnum)[val].toLowerCase());
-						layer.updateCurrentItemStyle();
-						break;
+					switch (name) {
+						case 'emoji': {
+							le.setAttribute('data-emoji', Object.keys(EmojiModeEnum)[val].toLowerCase());
+							layer.updateCurrentItemStyle();
+							break;
+						}
+						case 'wrap': {
+							const wrapStyle = WrapStyleDefinitions[val];
+							le.style.setProperty('--yt-lcf-message-hyphens', wrapStyle.hyphens);
+							le.style.setProperty('--yt-lcf-message-word-break', wrapStyle.wordBreak);
+							le.style.setProperty('--yt-lcf-message-white-space', wrapStyle.whiteSpace);
+							le.style.setProperty('--yt-lcf-max-width', s.styles.max_width);
+							layer.updateCurrentItemStyle();
+							break;
+						}
 					}
-					case 'wrap': {
-						const wrapStyle = WrapStyleDefinitions[val];
-						le.style.setProperty('--yt-lcf-message-hyphens', wrapStyle.hyphens);
-						le.style.setProperty('--yt-lcf-message-word-break', wrapStyle.wordBreak);
-						le.style.setProperty('--yt-lcf-message-white-space', wrapStyle.whiteSpace);
-						le.style.setProperty('--yt-lcf-max-width', s.styles.max_width);
-						layer.updateCurrentItemStyle();
-						break;
-					}
 				}
-			} else if (name === 'muted_words_mode') {
-				const mode = /** @type {MutedWordModeEnum} */ (Number.parseInt(elem.value, 10));
-				s.mutedWords.mode = mode;
-				const replacement = /** @type {HTMLInputElement} */ (ctrls.muted_words_replacement);
-				replacement.title = mode === MutedWordModeEnum.CHAR ? browser.i18n.getMessage('tooltip_mutedWordsReplacement') : '';
 			}
 		} else if (elem.classList.contains('styles') && name) {
-			// @ts-expect-error
+			// @ts-expect-error: Dynamic property access
 			s.styles[name] = elem.value + (elem.getAttribute('data-unit') || '');
 			if (le) {
 				switch (name) {
@@ -503,15 +508,16 @@ export class LiveChatPanel {
 						}
 						break;
 					}
-					case 'max_width': layer.updateCurrentItemStyle();
+					case 'max_width':
+						layer.updateCurrentItemStyle();
 				}
-				// @ts-expect-error
+				// @ts-expect-error: Dynamic property access
 				le.style.setProperty(`--yt-lcf-${name.replace(/_/g, '-')}`, s.styles[name]);
 			}
 		} else if (name.startsWith('stroke_')) {
-			// @ts-expect-error
+			// @ts-expect-error: Dynamic property access
 			s.styles[name] = elem.value + (elem.getAttribute('data-unit') || '');
-			// @ts-expect-error
+			// @ts-expect-error: Dynamic property access
 			le.style.setProperty(name.replace('stroke_', '--yt-lcf-stroke-'), s.styles[name]);
 		} else if (name.endsWith('_display')) {
 			const match = name.match(/^(.+)_display$/);
@@ -521,7 +527,7 @@ export class LiveChatPanel {
 				if (_type in s.parts && le) {
 					const type = /** @type {keyof typeof s.parts} */ (_type);
 					if (input.value !== 'color') {
-						// @ts-expect-error
+						// @ts-expect-error: Dynamic property access
 						s.data.parts[type][input.value] = input.checked;
 						le.style.setProperty(`--yt-lcf-${name.replace(/_/g, '-')}-${input.value}`, input.checked ? 'inherit' : 'none');
 					} else if (type !== 'paid_sticker') {
@@ -541,7 +547,7 @@ export class LiveChatPanel {
 							le.style.removeProperty(strokeProp);
 						}
 					}
-					// @ts-expect-error
+						// @ts-expect-error: Dynamic property access
 					s.parts[type] = s.data.parts[type];
 					layer.updateCurrentItemStyle(type);
 				}
@@ -568,7 +574,7 @@ export class LiveChatPanel {
 						le.style.removeProperty(fillProp);
 						le.style.removeProperty(strokeProp);
 					}
-					// @ts-expect-error
+						// @ts-expect-error: Dynamic property access
 					s.parts[type] = s.data.parts[type];
 				}
 			}
@@ -580,14 +586,14 @@ export class LiveChatPanel {
 			const match = name.match(/^(.*)_css$/);
 			if (match) {
 				const [_, type] = match;
+				/** @type {keyof typeof s.cssTexts} */
+				// @ts-expect-error: Dynamic property access
 				const selector = type && type !== 'user_defined' ? '.' + type : '';
-				// @ts-expect-error
 				s.cssTexts[selector] = /** @type {?HTMLInputElement} */ (ctrls[type + '_css'])?.value || '';
 				if (selector) {
 					const style = layer.root.getElementById('customcss');
 					if (style) {
 						const rule = new RegExp(`:host>${selector.replace('.', '\\.')}{.*?}`);
-						// @ts-expect-error
 						style.textContent = (style.textContent || '').replace(rule, `:host>${selector}{${s.cssTexts[selector]}}`);
 					}
 				} else {
@@ -597,35 +603,39 @@ export class LiveChatPanel {
 			}
 		} else if (name === 'prefix_lang') {
 			const checked = this.form?.[name].checked;
-			const val = s.others.translation;
-			s.others.translation = Math.abs(val) * (checked ? -1 : 1);
+			s.translation.prefixLangCode = checked;
 			le.classList[checked ? 'add' : 'remove'](name);
 			layer.updateCurrentItemStyle();
 		} else if (name === 'suffix_original') {
 			const checked = this.form?.[name].checked;
-			s.others[name] = Number(checked);
+			s.translation.suffixOriginal = checked;
 			le.classList[checked ? 'add' : 'remove'](name);
-		} else if (['overlapping', 'direction', 'except_lang', 'suffix_original'].includes(name)) {
+		} else if (name === 'except_lang') {
 			/** @type {NodeListOf<HTMLInputElement>} */
-			const list = this.form?.[name];
-			const val = Array.from(list).map(l => Number(l.checked)).reduce((a, c, i) => a + (c << i), 0);
-			// @ts-expect-error
-			s.others[name] = val;
-			if (name === 'direction') {
-				le.classList[0b01 & val ? 'add': 'remove']('direction-reversed-y');
-				le.classList[0b10 & val ? 'add': 'remove']('direction-reversed-x');
-			}
+			const cbs = this.form?.[name];
+			const val = Array.from(cbs).map(l => Number(l.checked)).reduce((a, c, i) => a + (c << i), 0);
+			s.translation.exceptionFlag = val;
+		} else if (name === 'overlapping') {
+			/** @type {NodeListOf<HTMLInputElement>} */
+			const cbs = this.form?.[name];
+			const val = Array.from(cbs).map(l => Number(l.checked)).reduce((a, c, i) => a + (c << i), 0);
+			s.others.overlapping = val;
+		} else if (name === 'direction') {
+			/** @type {NodeListOf<HTMLInputElement>} */
+			const cbs = this.form?.[name];
+			const val = Array.from(cbs).map(l => Number(l.checked)).reduce((a, c, i) => a + (c << i), 0);
+			s.others.direction = val;
+			le.classList[0b01 & val ? 'add': 'remove']('direction-reversed-y');
+			le.classList[0b10 & val ? 'add': 'remove']('direction-reversed-x');
 		} else if (name.startsWith('muted_words_')) {
 			switch (name) {
-				case 'muted_words_replacement': {
+				case 'muted_words_replacement':
 					s.mutedWords.replacement = elem.value;
 					break;
-				}
-				default: {
+				default:
 					s.mutedWords.regexp = /** @type {HTMLInputElement} */ (ctrls.muted_words_regexp).checked;
 					s.mutedWords.plainList = /** @type {HTMLTextAreaElement} */ (ctrls.muted_words_list).value.split(/\n+/).filter(s => s.length > 0);
 					updateMutedWordsList();
-				}
 			}
 		}
 		switch (name) {
@@ -664,15 +674,18 @@ export class LiveChatPanel {
 				s.others.container_limit = checked ? 0 : /** @type {HTMLInputElement} */ (ctrls.container_limit_number).valueAsNumber;
 				break;
 			}
+			case 'layer_autofit':
 			case 'show_username': {
-				const checked = /** @type {HTMLInputElement} */ (ctrls.show_username).checked;
-				s.others.show_username = checked ? 1 : 0;
+				const checked = /** @type {HTMLInputElement} */ (ctrls[name]).checked;
+				s.others[name] = checked ? 1 : 0;
+				if (name === 'layer_autofit') layer.autofit(checked);
 				break;
 			}
-			case 'time_shift': {
-				s.others.time_shift = /** @type {HTMLInputElement} */ (ctrls.time_shift).valueAsNumber;
+			case 'time_shift_normal':
+			case 'time_shift_low':
+			case 'time_shift_ultralow':
+				s.others[name] = /** @type {HTMLInputElement} */ (ctrls[name]).valueAsNumber;
 				break;
-			}
 		}
 	}
 

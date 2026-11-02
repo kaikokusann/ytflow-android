@@ -23,18 +23,11 @@ body {
 	background-color: var(--background-color);
 	color: var(--text-color);
 	font-family: system-ui;
-	font-size: 42px;
+	font-size: 14px;
 	margin: 0;
 }
 section {
 	padding: 1em;
-}
-.top-actions {
-	position: sticky;
-	top: 0;
-	z-index: 5;
-	background: var(--background-color);
-	padding: 0 0 .5em;
 }
 section + section {
 	border-top: 1px solid var(--border-color);
@@ -50,9 +43,14 @@ h1, h2 {
 }
 a {
 	color: var(--accent-color);
+	text-decoration: none;
 }
 a:hover {
 	color: var(--accent-color-hover);
+	text-decoration: underline;
+}
+col.max {
+	width: 100%;
 }
 th {
 	color: var(--text-color);
@@ -66,7 +64,7 @@ th {
 td {
 	color: var(--text-color-deemphasized);
 }
-dl.note {
+dl.note, pre {
 	background-color: color-mix(in srgb, var(--text-color) 3.5%, transparent);
 	border-radius: 8px;
 	margin: .75em 0 .75em -1em;
@@ -89,6 +87,9 @@ dd {
 	color: var(--text-color-deemphasized);
 	[data-browser="chrome"] & {
 		margin-inline-start: 1em;
+	}
+	&.preline {
+		white-space: pre-line;
 	}
 }
 button {
@@ -115,39 +116,17 @@ button.primary {
 button.primary:hover {
 	background-color: var(--accent-color-hover);
 }
-#btn-save-top,
-#btn-save {
-	border-radius: 12px;
-	box-shadow: 0 6px 18px color-mix(in srgb, var(--accent-color) 32%, transparent);
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 1.25em;
-	font-weight: 800;
-	line-height: 1.1;
-	margin: .35em .25em .45em 0;
-	min-height: 3em;
-	min-width: 9em;
-	padding: .7em 1.7em;
-}
-#btn-save-top {
-	width: min(100%, 12em);
-}
-#btn-save {
-	width: min(100%, 14em);
-}
 label {
 	display: inline-block;
+	white-space: nowrap;
 	&:not(:last-of-type) {
 		margin-inline-end: 1em;
 	}
 }
 input[type="radio"] {
-	height: 1em;
-	min-height: 44px;
-	min-width: 44px;
-	width: 1em;
-	vertical-align: -.15em;
+	height: 16px;
+	width: 16px;
+	vertical-align: -3px;
 	&:not(:checked) {
 		appearance: none;
 		border: 1px solid var(--border-color);
@@ -163,14 +142,7 @@ input[type="radio"] {
 input:checked + span {
 	color: var(--text-color);
 }
-input[type="checkbox"] {
-	height: 1em;
-	min-height: 44px;
-	min-width: 44px;
-	width: 1em;
-	vertical-align: -.15em;
-}
-input:is(:not([type]), [type="text"], [type="url"]),
+input:is(:not([type]), [type="search"], [type="text"], [type="url"]),
 textarea {
 	background-color: transparent;
 	border: 1px solid currentColor;
@@ -185,9 +157,8 @@ textarea {
 		text-align: center;
 	}
 }
-select {
-	font-size: 1em;
-	min-height: 1.4em;
+.flex {
+	display: flex;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -206,6 +177,7 @@ select {
 	}
 }
 
-[data-browser="chrome"] .only-firefox {
+[data-browser="chrome"] .only-firefox,
+[data-platform="mobile"] .only-desktop {
 	display: none;
 }

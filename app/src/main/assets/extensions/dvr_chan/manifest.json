@@ -1,0 +1,30 @@
+{
+  "manifest_version": 2,
+  "name": "DVR-chan",
+  "version": "4.1.0",
+  "description": "Force-enable DVR rewind on YouTube live streams.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "dvr-chan@local"
+    }
+  },
+  "permissions": [
+    "*://www.youtube.com/*",
+    "*://m.youtube.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://www.youtube.com/*",
+        "*://m.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    "dvr-chan-page.js"
+  ]
+}
